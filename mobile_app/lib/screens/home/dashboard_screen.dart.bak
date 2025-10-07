@@ -1,0 +1,320 @@
+import 'package:flutter/material.dart';
+import '../../config/theme.dart';
+import '../../services/api_service.dart';
+import '../../services/sync_service.dart';
+import '../../services/local_storage.dart';
+import '../../models/tractor.dart';
+
+class DashboardScreen extends StatefulWidget {
+  const DashboardScreen({Key? key}) : super(key: key);
+
+  @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+  final ApiService _apiService = ApiService();
+  final SyncService _syncService = SyncService();
+  final LocalStorage _localStorage = LocalStorage();
+  
+  List<Tractor> _tractors = [];
+  Map<String, dynamic>? _dashboardStats;
+  bool _isLoading = true;
+  bool _isOnline = false;
+  bool _isSyncing = false;
+  
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+    _checkConnectivity();
+  }
+  
+  Future<void> _checkConnectivity() async {
+    final online = await _syncService.isOnline();
+    setState(() => _isOnline = online);
+    
+    // Listen to connectivity changes
+    _syncService.connectivityStream().listen((isOnline) {
+      setState(() => _isOnline = isOnline);
+      if (isOnline) {
+        _syncData();
+      }
+    });
+  }
+  
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+    
+    try {
+      if (_isOnline) {
+        // Load from server
+        final tractors = await _apiService.getTractors('COOP001'); // Replace with actual coop_id
+        final stats = await _apiService.getDashboardStats('COOP001');
+        
+        // Save to local storage
+        for (var tractor in tractors) {
+          await _localStorage.insertTractor(tractor);
+        }
+        
+        setState(() {
+          _tractors = tractors;
+          _dashboardStats = stats;
+        });
+      } else {
+        // Load from local storage
+        final tractors = await _localStorage.getTractors('COOP001');
+        setState(() => _tractors = tractors);
+      }
+    } catch (e) {
+      print('Error loading data: $e');
+      // Fallback to local data
+      final tractors = await _localStorage.getTractors('COOP001');
+      setState(() => _tractors = tractors);
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+  
+  Future<void> _syncData() async {
+    if (_isSyncing) return;
+    
+    setState(() => _isSyncing = true);
+    
+    final result = await _syncService.syncData('COOP001', 'device_001');
+    
+    setState(() => _isSyncing = false);
+    
+    if (result.success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Synced: ${result.uploadedCount} uploaded, ${result.downloadedCount} downloaded',
+          ),
+          backgroundColor: AppTheme.successGreen,
+        ),
+      );
+      _loadData();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Sync failed: ${result.message}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('TractorCare'),
+        actions: [
+          // Sync indicator
+          if (_isSyncing)
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              ),
+            )
+          else
+            IconButton(
+              icon: Icon(
+                _isOnline ? Icons.cloud_done : Icons.cloud_off,
+                color: _isOnline ? Colors.white : Colors.orange,
+              ),
+              onPressed: _isOnline ? _syncData : null,
+            ),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: _loadData,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Stats cards
+                    if (_dashboardStats != null) _buildStatsSection(),
+                    
+                    const SizedBox(height: 24),
+                    
+                    // Tractors section
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Fleet Status',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            Navigator.pushNamed(context, '/tractors');
+                          },
+                          child: const Text('View All'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    
+                    // Tractor list
+                    if (_tractors.isEmpty)
+                      const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(32),
+                          child: Text('No tractors found'),
+                        ),
+                      )
+                    else
+                      ..._tractors.map((tractor) => _buildTractorCard(tractor)),
+                  ],
+                ),
+              ),
+            ),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: 0,
+        selectedItemColor: AppTheme.primaryGreen,
+        unselectedItemColor: AppTheme.neutralGray,
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard),
+            label: 'Dashboard',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.agriculture),
+            label: 'Tractors',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.book_online),
+            label: 'Bookings',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.warning),
+            label: 'Alerts',
+          ),
+        ],
+        onTap: (index) {
+          switch (index) {
+            case 0:
+              // Already on dashboard
+              break;
+            case 1:
+              Navigator.pushNamed(context, '/tractors');
+              break;
+            case 2:
+              Navigator.pushNamed(context, '/bookings');
+              break;
+            case 3:
+              Navigator.pushNamed(context, '/alerts');
+              break;
+          }
+        },
+      ),
+    );
+  }
+  
+  Widget _buildStatsSection() {
+    return Row(
+      children: [
+        Expanded(
+          child: _buildStatCard(
+            'Total Tractors',
+            _dashboardStats!['total_tractors'].toString(),
+            Icons.agriculture,
+            AppTheme.primaryGreen,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _buildStatCard(
+            'Available',
+            _dashboardStats!['available_tractors'].toString(),
+            Icons.check_circle,
+            AppTheme.successGreen,
+          ),
+        ),
+      ],
+    );
+  }
+  
+  Widget _buildStatCard(String title, String value, IconData icon, Color color) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 32),
+            const SizedBox(height: 8),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 12,
+                color: AppTheme.neutralGray,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  Widget _buildTractorCard(Tractor tractor) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: AppTheme.getStatusColor(tractor.currentStatus),
+          child: const Icon(Icons.agriculture, color: Colors.white),
+        ),
+        title: Text(
+          tractor.tractorId,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Text('${tractor.model} - ${tractor.engineHours.toInt()}h'),
+        trailing: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: AppTheme.getStatusColor(tractor.currentStatus).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            tractor.currentStatus.toUpperCase(),
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+              color: AppTheme.getStatusColor(tractor.currentStatus),
+            ),
+          ),
+        ),
+        onTap: () {
+          Navigator.pushNamed(
+            context,
+            '/tractor-detail',
+            arguments: tractor.tractorId,
+          );
+        },
+      ),
+    );
+  }
+}
