@@ -18,11 +18,20 @@ def clean_notebook(notebook_path: Path, cleaned_path: Path, remove_outputs: bool
     with notebook_path.open('r', encoding='utf-8') as f:
         notebook = json.load(f)
 
-    # Remove widget metadata from top-level metadata if present
-    if isinstance(notebook, dict):
-        meta = notebook.get("metadata", {})
-        if isinstance(meta, dict) and "widgets" in meta:
-            meta.pop("widgets", None)
+    # Remove any 'widgets' keys anywhere in the notebook structure
+    def remove_key_recursive(obj, key_to_remove: str):
+        if isinstance(obj, dict):
+            # pop the key if present
+            if key_to_remove in obj:
+                obj.pop(key_to_remove, None)
+            # recurse into values
+            for v in list(obj.values()):
+                remove_key_recursive(v, key_to_remove)
+        elif isinstance(obj, list):
+            for item in obj:
+                remove_key_recursive(item, key_to_remove)
+
+    remove_key_recursive(notebook, "widgets")
 
     # Optionally clear cell outputs & execution counts
     if remove_outputs:
