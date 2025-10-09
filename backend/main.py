@@ -20,9 +20,9 @@ except ImportError:
     RATE_LIMITING_ENABLED = False
     logging.warning("Rate limiting is disabled due to missing dependencies (fastapi-limiter, redis). Install them for rate limiting.")
 
-from .database import get_db
-from .auth import create_access_token, authenticate_user, update_last_login, get_current_user, RoleChecker, create_user
-from .schemas import *
+from database import get_db
+from auth import create_access_token, authenticate_user, update_last_login, get_current_user, RoleChecker, create_user
+from schemas import *
 from rule_based_maintenance import Tractor as RuleTractor, MaintenancePredictor, AlertSystem  # Integrate rule-based
 
 app = FastAPI(title="TractorCare API", version="1.0.0")
