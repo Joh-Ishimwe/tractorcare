@@ -7,4 +7,5 @@ python-jose[cryptography]
 python-multipart
 librosa
 tensorflow
-pydantic[email]==2.5.0
+pydantic
+email-validator
