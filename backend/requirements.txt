@@ -9,3 +9,6 @@ librosa
 tensorflow
 pydantic
 email-validator
+pandas
+fastapi-limiter
+redis
