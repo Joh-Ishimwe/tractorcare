@@ -4,7 +4,7 @@ fastapi
 uvicorn
 passlib[bcrypt]
 python-jose[cryptography]
-pydantic
 python-multipart
 librosa
 tensorflow
+pydantic[email]==2.5.0
