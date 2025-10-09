@@ -4,17 +4,25 @@ TractorCare API - Complete Backend
 from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi_limiter import FastAPILimiter
-from fastapi_limiter.depends import RateLimiter
 from pydantic import BaseModel
 from typing import List, Dict
 from datetime import datetime
 import logging
-import redis.asyncio as redis
+import os
 
-from database import get_db
-from auth import create_access_token, authenticate_user, update_last_login, get_current_user, RoleChecker, create_user
-from schemas import *
+# Conditional import for rate limiting
+try:
+    from fastapi_limiter import FastAPILimiter
+    from fastapi_limiter.depends import RateLimiter
+    import redis.asyncio as redis
+    RATE_LIMITING_ENABLED = True
+except ImportError:
+    RATE_LIMITING_ENABLED = False
+    logging.warning("Rate limiting is disabled due to missing dependencies (fastapi-limiter, redis). Install them for rate limiting.")
+
+from .database import get_db
+from .auth import create_access_token, authenticate_user, update_last_login, get_current_user, RoleChecker, create_user
+from .schemas import *
 from rule_based_maintenance import Tractor as RuleTractor, MaintenancePredictor, AlertSystem  # Integrate rule-based
 
 app = FastAPI(title="TractorCare API", version="1.0.0")
@@ -27,11 +35,13 @@ app.add_middleware(
     expose_headers=["*"]
 )
 
-# Rate limiting setup (using Redis as backend for production readiness)
-redis_client = redis.Redis.from_url("redis://localhost:6379", encoding="utf-8", decode_responses=True)
-@app.on_event("startup")
-async def startup():
-    await FastAPILimiter.init(redis_client)
+# Rate limiting setup (conditional and Render-compatible)
+if RATE_LIMITING_ENABLED:
+    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+    redis_client = redis.Redis.from_url(redis_url, encoding="utf-8", decode_responses=True)
+    @app.on_event("startup")
+    async def startup():
+        await FastAPILimiter.init(redis_client)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -42,8 +52,8 @@ require_admin = RoleChecker(["admin"])
 def root():
     return {"app": "TractorCare API", "version": "1.0.0"}
 
-@app.post("/auth/register", dependencies=[Depends(RateLimiter(times=5, seconds=60))])
-def register(user: UserCreate, db = Depends(get_db)):
+@app.post("/auth/register", dependencies=[Depends(RateLimiter(times=5, seconds=60)) if RATE_LIMITING_ENABLED else []])
+def register(user: UserCreate, db=Depends(get_db)):
     try:
         return create_user(db, user)
     except HTTPException as e:
@@ -53,8 +63,8 @@ def register(user: UserCreate, db = Depends(get_db)):
         logger.error(f"Unexpected error during registration: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@app.post("/auth/login", response_model=Token, dependencies=[Depends(RateLimiter(times=5, seconds=60))])
-def login(credentials: UserLogin, db = Depends(get_db)):
+@app.post("/auth/login", response_model=Token, dependencies=[Depends(RateLimiter(times=5, seconds=60)) if RATE_LIMITING_ENABLED else []])
+def login(credentials: UserLogin, db=Depends(get_db)):
     try:
         user = authenticate_user(db, credentials.username, credentials.password)
         if not user:
@@ -75,11 +85,11 @@ def login(credentials: UserLogin, db = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/auth/me")
-def get_me(current_user = Depends(get_current_user)):
+def get_me(current_user=Depends(get_current_user)):
     return current_user
 
-@app.post("/cooperatives", dependencies=[Depends(RateLimiter(times=10, seconds=60))])
-def create_cooperative(coop: CooperativeCreate, db = Depends(get_db), _ = Depends(require_admin)):
+@app.post("/cooperatives", dependencies=[Depends(RateLimiter(times=10, seconds=60)) if RATE_LIMITING_ENABLED else []])
+def create_cooperative(coop: CooperativeCreate, db=Depends(get_db), _=Depends(require_admin)):
     try:
         coop_dict = coop.dict()
         if db.cooperatives.find_one({"coop_id": coop.coop_id}):
@@ -94,7 +104,7 @@ def create_cooperative(coop: CooperativeCreate, db = Depends(get_db), _ = Depend
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/cooperatives/{coop_id}")
-def get_cooperative(coop_id: str, db = Depends(get_db), current_user = Depends(get_current_user)):
+def get_cooperative(coop_id: str, db=Depends(get_db), current_user=Depends(get_current_user)):
     try:
         coop = db.cooperatives.find_one({"coop_id": coop_id})
         if not coop:
@@ -108,15 +118,15 @@ def get_cooperative(coop_id: str, db = Depends(get_db), current_user = Depends(g
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/cooperatives")
-def list_cooperatives(db = Depends(get_db), current_user = Depends(get_current_user)):
+def list_cooperatives(db=Depends(get_db), current_user=Depends(get_current_user)):
     try:
         return list(db.cooperatives.find())
     except Exception as e:
         logger.error(f"Unexpected error listing cooperatives: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@app.post("/tractors", dependencies=[Depends(RateLimiter(times=10, seconds=60))])
-def create_tractor(tractor: TractorCreate, db = Depends(get_db), current_user = Depends(get_current_user)):
+@app.post("/tractors", dependencies=[Depends(RateLimiter(times=10, seconds=60)) if RATE_LIMITING_ENABLED else []])
+def create_tractor(tractor: TractorCreate, db=Depends(get_db), current_user=Depends(get_current_user)):
     try:
         tractor_dict = tractor.dict()
         tractor_dict["purchase_date"] = datetime.strptime(tractor.purchase_date, "%Y-%m-%d")
@@ -134,7 +144,7 @@ def create_tractor(tractor: TractorCreate, db = Depends(get_db), current_user = 
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/tractors/{tractor_id}")
-def get_tractor(tractor_id: str, db = Depends(get_db), current_user = Depends(get_current_user)):
+def get_tractor(tractor_id: str, db=Depends(get_db), current_user=Depends(get_current_user)):
     try:
         tractor = db.tractors.find_one({"tractor_id": tractor_id})
         if not tractor:
@@ -148,7 +158,7 @@ def get_tractor(tractor_id: str, db = Depends(get_db), current_user = Depends(ge
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/cooperatives/{coop_id}/tractors")
-def list_coop_tractors(coop_id: str, db = Depends(get_db), current_user = Depends(get_current_user)):
+def list_coop_tractors(coop_id: str, db=Depends(get_db), current_user=Depends(get_current_user)):
     try:
         return list(db.tractors.find({"coop_id": coop_id}))
     except Exception as e:
@@ -156,7 +166,7 @@ def list_coop_tractors(coop_id: str, db = Depends(get_db), current_user = Depend
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/tractors")
-def list_tractors(db = Depends(get_db), current_user = Depends(get_current_user)):
+def list_tractors(db=Depends(get_db), current_user=Depends(get_current_user)):
     try:
         return list(db.tractors.find())
     except Exception as e:
@@ -164,7 +174,7 @@ def list_tractors(db = Depends(get_db), current_user = Depends(get_current_user)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/tractors/{tractor_id}/predictions")
-def get_predictions(tractor_id: str, db = Depends(get_db), current_user = Depends(get_current_user)):
+def get_predictions(tractor_id: str, db=Depends(get_db), current_user=Depends(get_current_user)):
     try:
         tractor_data = db.tractors.find_one({"tractor_id": tractor_id})
         if not tractor_data:
@@ -191,8 +201,8 @@ def get_predictions(tractor_id: str, db = Depends(get_db), current_user = Depend
         logger.error(f"Unexpected error getting predictions: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@app.post("/members", dependencies=[Depends(RateLimiter(times=10, seconds=60))])
-def create_member(member: MemberCreate, db = Depends(get_db), current_user = Depends(get_current_user)):
+@app.post("/members", dependencies=[Depends(RateLimiter(times=10, seconds=60)) if RATE_LIMITING_ENABLED else []])
+def create_member(member: MemberCreate, db=Depends(get_db), current_user=Depends(get_current_user)):
     try:
         member_dict = member.dict()
         member_dict["membership_status"] = "active"
@@ -206,8 +216,8 @@ def create_member(member: MemberCreate, db = Depends(get_db), current_user = Dep
         logger.error(f"Unexpected error creating member: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@app.post("/bookings", dependencies=[Depends(RateLimiter(times=10, seconds=60))])
-def create_booking(booking: BookingCreate, db = Depends(get_db), current_user = Depends(get_current_user)):
+@app.post("/bookings", dependencies=[Depends(RateLimiter(times=10, seconds=60)) if RATE_LIMITING_ENABLED else []])
+def create_booking(booking: BookingCreate, db=Depends(get_db), current_user=Depends(get_current_user)):
     try:
         booking_dict = booking.dict()
         booking_dict["booking_status"] = "pending"
@@ -222,8 +232,8 @@ def create_booking(booking: BookingCreate, db = Depends(get_db), current_user = 
         logger.error(f"Unexpected error creating booking: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@app.post("/maintenance-records", dependencies=[Depends(RateLimiter(times=10, seconds=60))])
-def create_maintenance(record: MaintenanceRecordCreate, db = Depends(get_db), current_user = Depends(get_current_user)):
+@app.post("/maintenance-records", dependencies=[Depends(RateLimiter(times=10, seconds=60)) if RATE_LIMITING_ENABLED else []])
+def create_maintenance(record: MaintenanceRecordCreate, db=Depends(get_db), current_user=Depends(get_current_user)):
     try:
         record_dict = record.dict()
         record_dict["date"] = datetime.strptime(record.date, "%Y-%m-%d")
@@ -238,7 +248,7 @@ def create_maintenance(record: MaintenanceRecordCreate, db = Depends(get_db), cu
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/predict-ml")  # Placeholder for ML (upload audio)
-async def predict_ml(tractor_id: str, audio: UploadFile = File(...), db = Depends(get_db), current_user = Depends(get_current_user)):
+async def predict_ml(tractor_id: str, audio: UploadFile = File(...), db=Depends(get_db), current_user=Depends(get_current_user)):
     try:
         # TODO: Process audio with ML model from notebook
         # Example: Save file, extract MFCC, predict with CNN, store in ml_predictions
@@ -247,8 +257,8 @@ async def predict_ml(tractor_id: str, audio: UploadFile = File(...), db = Depend
         logger.error(f"Unexpected error in ML prediction: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@app.post("/sync", dependencies=[Depends(RateLimiter(times=5, seconds=300))])  # Limit to 5 syncs per 5 minutes to prevent abuse
-def sync_data(data: Dict, db = Depends(get_db), current_user = Depends(get_current_user)):
+@app.post("/sync", dependencies=[Depends(RateLimiter(times=5, seconds=300)) if RATE_LIMITING_ENABLED else []])
+def sync_data(data: Dict, db=Depends(get_db), current_user=Depends(get_current_user)):
     try:
         # Assume data = {"collection_name": [{"_id": ..., "data": ...}, ...]}
         for collection_name, items in data.items():
@@ -289,3 +299,8 @@ def sync_data(data: Dict, db = Depends(get_db), current_user = Depends(get_curre
         }
         db.sync_logs.insert_one(sync_log)
         raise HTTPException(status_code=500, detail="Sync failed")
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port, reload=True)
