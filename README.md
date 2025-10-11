@@ -107,9 +107,10 @@ TractorCare is a hybrid machine learning system designed for the early detection
 
 ### Important Links
 - [Repo Link](https://github.com/josishimwe/tractorcare)
+- [Info web link](https://tractorcare.onrender.com/)
 - [Full Design System Figma Link](https://docs.google.com/document/d/1dxg7Q7S4b1OSteFDj5SCjF9l15-Mj-nbUK4H8m4lI8Y/edit?usp=sharing) 
 - [Deployed API Docs](https://tractorcare-backend.onrender.com/docs) 
-- [Demo Video Link](https://docs.google.com/document/d/1dxg7Q7S4b1OSteFDj5SCjF9l15-Mj-nbUK4H8m4lI8Y/edit?usp=sharing) 
+- [Demo Video Link](https://docs.google.com/document/d/1dxg7Q7S4b1OSteFDj5SCjF9l15-Mj-nbUK4H8m4lI8Y/edit?usp=sharing)
 
 ---
 
