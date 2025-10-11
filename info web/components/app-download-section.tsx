@@ -15,7 +15,7 @@ export function AppDownloadSection() {
       <div className="max-w-7xl mx-auto relative z-10">
         <div className="grid lg:grid-cols-2 gap-12 items-center">
           {/* Left Content */}
-          <div>
+          <div className="pl-2 lg:pl-6">
             <div className="inline-flex items-center gap-2 bg-green-500/10 border border-green-500/20 rounded-full px-4 py-2 mb-6">
               <Smartphone className="w-4 h-4 text-green-500" />
               <span className="text-sm font-medium text-green-500">Mobile App Available</span>
