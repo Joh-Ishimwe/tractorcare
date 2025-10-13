@@ -1,6 +1,4 @@
 # TractorCare - Predictive Maintenance for Agricultural Tractors
-
-## Project Description
 TractorCare is a hybrid machine learning system designed for the early detection of tractor engine failures using acoustic analysis. It combines rule-based maintenance scheduling with audio-based anomaly detection, tailored for smallholder farmers in Rwanda. This project aims to improve tractor reliability, reduce downtime, and enhance agricultural productivity through affordable, accessible technology.
 
 ---
@@ -59,15 +57,6 @@ TractorCare is a hybrid machine learning system designed for the early detection
 ### Key Findings
 Supervised models (SVM, KNN, ResNet-like CNN) excelled with accuracies above 92%. But ResNet-like CNN showed strong potential for transfer learning with perfect precision.
 Isolation Forest underperformed, confirming the value of labelled data for this task.
-  
-- **Top Performers:** ResNet-like CNN and VGG-like CNN lead with high accuracy (92.90% and 91.26%).
-- **Best Precision:** ResNet-like CNN (100.00%) - Ensures no false positives, minimizing unnecessary maintenance.
-- **Highest Recall:** CNN (93.62%) - Best at catching all failures, though ResNet-like CNN (86.17%) is competitive.
-- **Most Balanced:** ResNet-like CNN with an F1-Score of 92.57%, suitable for practical deployment.
-- **Least Effective:** Isolation Forest (43.17% accuracy) underperformed on this labeled dataset.
-
-
-
 
 ### Model Selection Rationale
 **Selected Model:** ResNet-like CNN
@@ -92,12 +81,12 @@ Isolation Forest underperformed, confirming the value of labelled data for this 
 
 3. **Why Hybrid?**
    - Rule-based systems miss unforeseen failures; ML alone overlooks routine needs.
-   - Combination provides comprehensive predictive maintenance.
+   - The combination provides comprehensive predictive maintenance.
 
 ### Components
 1. **Informative Website and Leader Dashboard**
    - Public marketing site and admin dashboard for cooperative leaders.
-   - Features: Fleet health visualization, analytics, cooperative management.
+   - Features: Fleet health visualisation, analytics, cooperative management.
 
 2. **Mobile Application (Flutter)**
    - Audio recording, real-time predictions, maintenance scheduling, usage tracking.
