@@ -57,18 +57,24 @@ TractorCare is a hybrid machine learning system designed for the early detection
 | ResNet-like CNN | 92.90%   | 100.00%   | 86.17% | 92.57%   |
 
 ### Key Findings
+Supervised models (SVM, KNN, ResNet-like CNN) excelled with accuracies above 92%. But ResNet-like CNN showed strong potential for transfer learning with perfect precision.
+Isolation Forest underperformed, confirming the value of labelled data for this task.
+  
 - **Top Performers:** ResNet-like CNN and VGG-like CNN lead with high accuracy (92.90% and 91.26%).
 - **Best Precision:** ResNet-like CNN (100.00%) - Ensures no false positives, minimizing unnecessary maintenance.
 - **Highest Recall:** CNN (93.62%) - Best at catching all failures, though ResNet-like CNN (86.17%) is competitive.
 - **Most Balanced:** ResNet-like CNN with an F1-Score of 92.57%, suitable for practical deployment.
 - **Least Effective:** Isolation Forest (43.17% accuracy) underperformed on this labeled dataset.
 
+
+
+
 ### Model Selection Rationale
 **Selected Model:** ResNet-like CNN
 - **Reasons:**
   1. Perfect Precision (100.00%) - Critical for cost-effective maintenance scheduling.
   2. Strong F1-Score (92.57%) - Balances precision and recall effectively.
-  3. Residual connections enhance generalization, ideal for transfer learning on tractor data.
+  3. Residual connections enhance generalisation, ideal for transfer learning on tractor data.
   4. Computational trade-off (slow training) acceptable for cloud deployment, with potential for edge optimization.
 
 ---
