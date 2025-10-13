@@ -116,7 +116,7 @@ Isolation Forest underperformed, confirming the value of labelled data for this 
 - [Info web link](https://tractorcare.onrender.com/)
 - [Full Design System Figma Link]([https://docs.google.com/document/d/1dxg7Q7S4b1OSteFDj5SCjF9l15-Mj-nbUK4H8m4lI8Y/edit?usp=sharing](https://www.figma.com/design/eWGvztGWZVTiAiBUjvSEXn/TractorCare?node-id=0-1&t=bWg7Cqmcuc0fSKuk-1)) 
 - [Deployed API Docs](https://tractorcare-backend.onrender.com/docs) 
-- [Demo Video Link](https://docs.google.com/document/d/1dxg7Q7S4b1OSteFDj5SCjF9l15-Mj-nbUK4H8m4lI8Y/edit?usp=sharing)
+- [Demo Video Link](https://youtu.be/5MO33OFGWrQ)
 
 ---
 
