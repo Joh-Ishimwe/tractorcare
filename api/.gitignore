@@ -1,0 +1,12 @@
+# Virtual environments
+venv/
+api/venv/
+.env/
+# Ignore all model binaries
+*.pt
+*.pkl
+*.onnx
+*.joblib
+
+test_*.wav
+*.mp3
