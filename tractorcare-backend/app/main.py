@@ -44,7 +44,7 @@ app = FastAPI(
     description=settings.API_DESCRIPTION,
     version=settings.API_VERSION,
     lifespan=lifespan,
-    docs_url="/docs",           
+    docs_url="/docs",          
     redoc_url="/redoc",         
     openapi_url="/openapi.json" 
 )
@@ -91,7 +91,7 @@ async def root():
     return {
         "message": "TractorCare API",
         "version": settings.API_VERSION,
-        "docs": "/docs"  # ✅ Updated to /docs
+        "docs": "/docs"  
     }
 
 
@@ -100,31 +100,31 @@ from app.routes import auth, tractors, maintenance, audio, statistics
 
 app.include_router(
     auth.router,
-    prefix="/auth",  # ✅ Removed /v1
+    prefix="/auth", 
     tags=["Authentication"]
 )
 
 app.include_router(
     tractors.router,
-    prefix="/tractors",  # ✅ Removed /v1
+    prefix="/tractors", 
     tags=["Tractors"]
 )
 
 app.include_router(
     maintenance.router,
-    prefix="/maintenance",  # ✅ Removed /v1
+    prefix="/maintenance",  
     tags=["Maintenance"]
 )
 
 app.include_router(
     audio.router,
-    prefix="/audio",  # ✅ Removed /v1
+    prefix="/audio",  
     tags=["Audio Analysis"]
 )
 
 app.include_router(
     statistics.router,
-    prefix="/statistics",  # ✅ Removed /v1
+    prefix="/statistics",  
     tags=["Statistics"]
 )
 
