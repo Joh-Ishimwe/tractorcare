@@ -44,9 +44,9 @@ app = FastAPI(
     description=settings.API_DESCRIPTION,
     version=settings.API_VERSION,
     lifespan=lifespan,
-    docs_url=f"/{settings.API_VERSION}/docs",
-    redoc_url=f"/{settings.API_VERSION}/redoc",
-    openapi_url=f"/{settings.API_VERSION}/openapi.json"
+    docs_url="/docs",           
+    redoc_url="/redoc",         
+    openapi_url="/openapi.json" 
 )
 
 # CORS middleware
@@ -91,7 +91,7 @@ async def root():
     return {
         "message": "TractorCare API",
         "version": settings.API_VERSION,
-        "docs": f"/{settings.API_VERSION}/docs"
+        "docs": "/docs"  # ✅ Updated to /docs
     }
 
 
@@ -100,31 +100,31 @@ from app.routes import auth, tractors, maintenance, audio, statistics
 
 app.include_router(
     auth.router,
-    prefix=f"/{settings.API_VERSION}/auth",
+    prefix="/auth",  # ✅ Removed /v1
     tags=["Authentication"]
 )
 
 app.include_router(
     tractors.router,
-    prefix=f"/{settings.API_VERSION}/tractors",
+    prefix="/tractors",  # ✅ Removed /v1
     tags=["Tractors"]
 )
 
 app.include_router(
     maintenance.router,
-    prefix=f"/{settings.API_VERSION}/maintenance",
+    prefix="/maintenance",  # ✅ Removed /v1
     tags=["Maintenance"]
 )
 
 app.include_router(
     audio.router,
-    prefix=f"/{settings.API_VERSION}/audio",
+    prefix="/audio",  # ✅ Removed /v1
     tags=["Audio Analysis"]
 )
 
 app.include_router(
     statistics.router,
-    prefix=f"/{settings.API_VERSION}/statistics",
+    prefix="/statistics",  # ✅ Removed /v1
     tags=["Statistics"]
 )
 
