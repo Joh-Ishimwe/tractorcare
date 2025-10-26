@@ -49,11 +49,11 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final response = await _apiService.register(user, password);
-      _token = response['access_token'];
-      _currentUser = User.fromJson(response['user']);
-      _isAuthenticated = true;
-      await _saveAuthState();
+      // Backend returns the created user (no token). Perform a follow-up login.
+      await _apiService.register(user, password);
+
+      // Immediately login to fetch token and profile
+      await login(user.email, password);
     } finally {
       _isLoading = false;
       notifyListeners();

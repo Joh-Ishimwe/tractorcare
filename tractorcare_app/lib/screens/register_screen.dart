@@ -21,7 +21,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
   
-  String _selectedRole = 'farmer';
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
   bool _isLoading = false;
@@ -49,7 +48,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         name: _nameController.text.trim(),
         email: _emailController.text.trim(),
         phone: _phoneController.text.trim(),
-        role: _selectedRole,
+        role: 'farmer', // Default role
       );
 
       await auth.register(user, _passwordController.text);
@@ -143,21 +142,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                DropdownButtonFormField<String>(
-                  value: _selectedRole,
-                  decoration: const InputDecoration(
-                    labelText: 'Role',
-                    prefixIcon: Icon(Icons.work_outline),
-                  ),
-                  items: const [
-                    DropdownMenuItem(value: 'farmer', child: Text('Farmer')),
-                    DropdownMenuItem(value: 'mechanic', child: Text('Mechanic')),
-                    DropdownMenuItem(value: 'cooperative_manager', child: Text('Cooperative Manager')),
-                  ],
-                  onChanged: (v) => setState(() => _selectedRole = v!),
-                ),
-                const SizedBox(height: 16),
-
                 TextFormField(
                   controller: _passwordController,
                   obscureText: _obscurePassword,
@@ -171,7 +155,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   ),
                   validator: (v) {
                     if (v?.isEmpty ?? true) return 'Enter password';
-                    if (v!.length < 6) return 'Min 6 characters';
+                    if (v!.length < 8) return 'Min 8 characters';
                     return null;
                   },
                 ),

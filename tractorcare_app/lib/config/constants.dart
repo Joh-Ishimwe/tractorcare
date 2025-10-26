@@ -7,12 +7,12 @@ class AppConstants {
   static const String appTagline = 'Smart maintenance for smart farming';
 
   // API Configuration
-  static const Duration apiTimeout = Duration(seconds: 30);
-  static const Duration uploadTimeout = Duration(minutes: 2);
+  static const Duration apiTimeout = Duration(seconds: 10);
+  static const Duration uploadTimeout = Duration(minutes: 1);
   static const int maxRetries = 3;
 
   // Audio Recording
-  static const int audioRecordingDuration = 10; // seconds
+  static const int audioRecordingDuration = 10; 
   static const int audioSampleRate = 44100;
   static const String audioFormat = 'm4a';
 

@@ -89,15 +89,15 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: 24),
 
                   // Title
-                  const Text(
-                    'TractorCare',
-                    style: TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.primary,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
+                  // const Text(
+                  //   'TractorCare',
+                  //   style: TextStyle(
+                  //     fontSize: 32,
+                  //     fontWeight: FontWeight.bold,
+                  //     color: AppColors.primary,
+                  //   ),
+                  //   textAlign: TextAlign.center,
+                  // ),
                   const SizedBox(height: 8),
                   Text(
                     'Smart maintenance for smart farming',
@@ -194,56 +194,20 @@ class _LoginScreenState extends State<LoginScreen> {
                         "Don't have an account? ",
                         style: TextStyle(color: Colors.grey[600]),
                       ),
-                      TextButton(
-                        onPressed: () {
-                          // Navigate to signup screen
-                          Navigator.pushNamed(context, '/signup');
+                      GestureDetector(
+                        onTap: () {
+                          Navigator.pushNamed(context, '/register');
                         },
-                        child: const Text(
+                        child: Text(
                           'Sign Up',
                           style: TextStyle(
+                            color: AppColors.primary,
                             fontWeight: FontWeight.bold,
+                            decoration: TextDecoration.underline,
                           ),
                         ),
                       ),
                     ],
-                  ),
-
-                  // Test Info
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.blue[50],
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.blue[200]!),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.info_outline, color: Colors.blue[700]),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Test Account',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.blue[700],
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Email: test@example.com\nPassword: test123',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.blue[900],
-                            fontFamily: 'monospace',
-                          ),
-                        ),
-                      ],
-                    ),
                   ),
                 ],
               ),

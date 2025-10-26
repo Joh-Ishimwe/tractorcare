@@ -39,11 +39,10 @@ class ApiService {
             Uri.parse('$baseUrl/auth/register'),
             headers: _getHeaders(),
             body: jsonEncode({
-              'name': user.name,
               'email': user.email,
-              'phone': user.phone,
-              'role': user.role,
               'password': password,
+              'full_name': user.name,
+              'phone': user.phone,
             }),
           )
           .timeout(timeout);
@@ -224,7 +223,7 @@ Future<Map<String, dynamic>> login(String email, String password) async {
     try {
       final response = await http
           .get(
-            Uri.parse('$baseUrl/alerts/?tractor_id=$tractorId'),
+            Uri.parse('$baseUrl/maintenance/$tractorId/alerts'),
             headers: _getHeaders(token: token),
           )
           .timeout(timeout);
@@ -240,22 +239,31 @@ Future<Map<String, dynamic>> login(String email, String password) async {
     }
   }
 
-  /// Get all alerts for current user
+  /// Get all alerts for all user's tractors
   Future<List<MaintenanceAlert>> getAllUserAlerts(String token) async {
     try {
-      final response = await http
-          .get(
-            Uri.parse('$baseUrl/alerts/'),
-            headers: _getHeaders(token: token),
-          )
-          .timeout(timeout);
-
-      if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
-        return data.map((json) => MaintenanceAlert.fromJson(json)).toList();
-      } else {
-        throw Exception('Failed to load alerts');
+      // First get all tractors
+      final tractors = await getTractors(token);
+      
+      if (tractors.isEmpty) {
+        return []; // No tractors, no alerts
       }
+      
+      // Fetch alerts for each tractor
+      final allAlerts = <MaintenanceAlert>[];
+      for (final tractor in tractors) {
+        try {
+          // Use tractor_id if available, otherwise fall back to id
+          final tractorIdentifier = tractor.tractorId ?? tractor.id;
+          final tractorAlerts = await getAlerts(token, tractorIdentifier);
+          allAlerts.addAll(tractorAlerts);
+        } catch (e) {
+          print('Error loading alerts for tractor ${tractor.tractorId ?? tractor.id}: $e');
+          // Continue with other tractors even if one fails
+        }
+      }
+      
+      return allAlerts;
     } catch (e) {
       throw Exception('Error loading alerts: $e');
     }

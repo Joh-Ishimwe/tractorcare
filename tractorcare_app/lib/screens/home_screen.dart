@@ -3,10 +3,102 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
+import '../services/api_service.dart';
+import '../models/dashboard_stats.dart';
+import '../models/tractor.dart';
+import '../models/maintenance_alert.dart';
+import 'record_audio_screen.dart';
+import 'alerts_screen.dart';
+import 'tractor_details_screen.dart';
 import '../theme.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final ApiService _apiService = ApiService();
+  DashboardStats _stats = DashboardStats();
+  bool _isLoading = true;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDashboardStats();
+  }
+
+  Future<void> _loadDashboardStats() async {
+    if (!mounted) return;
+    
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final auth = Provider.of<AuthService>(context, listen: false);
+      final token = auth.token;
+
+      if (token == null) {
+        throw Exception('Not authenticated');
+      }
+
+      // Fetch tractors - alerts are optional
+      List<Tractor> tractors = [];
+      List<MaintenanceAlert> alerts = [];
+      
+      try {
+        tractors = await _apiService.getTractors(token);
+      } catch (e) {
+        print('Error loading tractors: $e');
+        // Continue even if tractors fail
+      }
+      
+      try {
+        alerts = await _apiService.getAllUserAlerts(token);
+      } catch (e) {
+        print('Error loading alerts: $e');
+        // Continue even if alerts fail
+      }
+
+      // Calculate stats
+      final urgentAlerts = alerts.where((a) => 
+        a.priority == 'high' || a.priority == 'urgent'
+      ).length;
+
+      final scheduledAlerts = alerts.where((a) => 
+        a.status == 'pending' || a.status == 'scheduled'
+      ).length;
+
+      final completedAlerts = alerts.where((a) => 
+        a.status == 'completed'
+      ).length;
+
+      if (!mounted) return;
+      
+      setState(() {
+        _stats = DashboardStats(
+          totalTractors: tractors.length,
+          totalAlerts: alerts.length,
+          urgentAlerts: urgentAlerts,
+          scheduledMaintenance: scheduledAlerts,
+          completedMaintenance: completedAlerts,
+        );
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      
+      setState(() {
+        _errorMessage = e.toString().replaceAll('Exception: ', '');
+        _isLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -15,6 +107,11 @@ class HomeScreen extends StatelessWidget {
         title: const Text('TractorCare Dashboard'),
         backgroundColor: AppColors.primary,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadDashboardStats,
+            tooltip: 'Refresh',
+          ),
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () async {
@@ -32,7 +129,56 @@ class HomeScreen extends StatelessWidget {
         builder: (context, auth, _) {
           final user = auth.currentUser;
 
-          return SingleChildScrollView(
+          if (_isLoading) {
+            return const Center(
+              child: CircularProgressIndicator(),
+            );
+          }
+
+          if (_errorMessage != null) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.error_outline,
+                      size: 64,
+                      color: AppColors.error,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Error loading dashboard',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _errorMessage!,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    ElevatedButton.icon(
+                      onPressed: _loadDashboardStats,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+
+          return RefreshIndicator(
+            onRefresh: _loadDashboardStats,
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -57,7 +203,7 @@ class HomeScreen extends StatelessWidget {
                           ),
                           child: Center(
                             child: Text(
-                              user?.name.substring(0, 1).toUpperCase() ?? 'U',
+                              _initialFromUser(user),
                               style: const TextStyle(
                                 fontSize: 24,
                                 fontWeight: FontWeight.bold,
@@ -80,7 +226,9 @@ class HomeScreen extends StatelessWidget {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                user?.name ?? 'User',
+                                (user?.name.isNotEmpty == true)
+                                    ? user!.name
+                                    : (user?.email ?? 'User'),
                                 style: const TextStyle(
                                   fontSize: 20,
                                   fontWeight: FontWeight.bold,
@@ -130,8 +278,15 @@ class HomeScreen extends StatelessWidget {
                       child: _buildStatCard(
                         icon: Icons.agriculture,
                         title: 'Tractors',
-                        value: '0',
+                        value: '${_stats.totalTractors}',
                         color: AppColors.primary,
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const TractorDetailsScreen(),
+                            ),
+                          );
+                        },
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -139,8 +294,15 @@ class HomeScreen extends StatelessWidget {
                       child: _buildStatCard(
                         icon: Icons.notifications,
                         title: 'Alerts',
-                        value: '0',
+                        value: '${_stats.totalAlerts}',
                         color: AppColors.warning,
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const AlertsScreen(),
+                            ),
+                          );
+                        },
                       ),
                     ),
                   ],
@@ -153,8 +315,15 @@ class HomeScreen extends StatelessWidget {
                       child: _buildStatCard(
                         icon: Icons.calendar_today,
                         title: 'Scheduled',
-                        value: '0',
+                        value: '${_stats.scheduledMaintenance}',
                         color: AppColors.info,
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const AlertsScreen(),
+                            ),
+                          );
+                        },
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -162,8 +331,15 @@ class HomeScreen extends StatelessWidget {
                       child: _buildStatCard(
                         icon: Icons.check_circle,
                         title: 'Completed',
-                        value: '0',
+                        value: '${_stats.completedMaintenance}',
                         color: AppColors.success,
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const AlertsScreen(),
+                            ),
+                          );
+                        },
                       ),
                     ),
                   ],
@@ -187,9 +363,9 @@ class HomeScreen extends StatelessWidget {
                   subtitle: 'Register a new tractor',
                   color: AppColors.primary,
                   onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Coming soon: Add Tractor'),
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const TractorDetailsScreen(),
                       ),
                     );
                   },
@@ -203,9 +379,9 @@ class HomeScreen extends StatelessWidget {
                   subtitle: 'Analyze tractor health',
                   color: AppColors.info,
                   onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Coming soon: Audio Recording'),
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const RecordAudioScreen(),
                       ),
                     );
                   },
@@ -219,19 +395,32 @@ class HomeScreen extends StatelessWidget {
                   subtitle: 'Check maintenance history',
                   color: AppColors.success,
                   onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Coming soon: Reports'),
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const AlertsScreen(),
                       ),
                     );
                   },
                 ),
               ],
             ),
+          ),
           );
         },
       ),
     );
+  }
+
+  String _initialFromUser(dynamic user) {
+    final name = (user?.name ?? '').toString().trim();
+    if (name.isNotEmpty) {
+      return name.characters.first.toUpperCase();
+    }
+    final email = (user?.email ?? '').toString().trim();
+    if (email.isNotEmpty) {
+      return email.characters.first.toUpperCase();
+    }
+    return 'U';
   }
 
   Widget _buildStatCard({
@@ -239,31 +428,36 @@ class HomeScreen extends StatelessWidget {
     required String title,
     required String value,
     required Color color,
+    VoidCallback? onTap,
   }) {
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            Icon(icon, size: 32, color: color),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: color,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              Icon(icon, size: 32, color: color),
+              const SizedBox(height: 8),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
               ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 14,
-                color: AppColors.textSecondary,
+              const SizedBox(height: 4),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: AppColors.textSecondary,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

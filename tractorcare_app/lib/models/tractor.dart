@@ -2,6 +2,7 @@
 
 class Tractor {
   final String id;
+  final String? tractorId; // The tractor_id from backend (e.g., "TR001")
   final String model;
   final String brand;
   final double engineHours;
@@ -14,6 +15,7 @@ class Tractor {
 
   Tractor({
     required this.id,
+    this.tractorId,
     required this.model,
     required this.brand,
     required this.engineHours,
@@ -28,8 +30,9 @@ class Tractor {
   factory Tractor.fromJson(Map<String, dynamic> json) {
     return Tractor(
       id: json['id'] ?? json['_id'] ?? '',
+      tractorId: json['tractor_id'],
       model: json['model'] ?? '',
-      brand: json['brand'] ?? '',
+      brand: json['brand'] ?? json['make'] ?? '',
       engineHours: (json['engine_hours'] ?? 0).toDouble(),
       purchaseDate: json['purchase_date'] ?? '',
       usageIntensity: json['usage_intensity'] ?? 'moderate',
@@ -47,6 +50,7 @@ class Tractor {
   Map<String, dynamic> toJson() {
     return {
       'id': id,
+      if (tractorId != null) 'tractor_id': tractorId,
       'model': model,
       'brand': brand,
       'engine_hours': engineHours,

@@ -18,9 +18,11 @@ class User {
   });
 
   factory User.fromJson(Map<String, dynamic> json) {
+    // backend may return full_name instead of name
+    final fullName = (json['name'] ?? json['full_name'] ?? '') as String;
     return User(
       id: json['id'] ?? json['_id'] ?? '',
-      name: json['name'] ?? '',
+      name: fullName,
       email: json['email'] ?? '',
       phone: json['phone'] ?? '',
       role: json['role'] ?? 'farmer',
