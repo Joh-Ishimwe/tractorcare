@@ -23,9 +23,6 @@ logger = logging.getLogger(__name__)
 # Initialize ML service
 ml_service = MLService()
 
-# Supported audio formats
-SUPPORTED_FORMATS = {'.wav', '.flac', '.mp3', '.ogg'}
-
 # Create uploads directory
 UPLOAD_DIR = Path("uploads/audio")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -34,20 +31,18 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 @router.post("/upload", response_model=AudioPredictionResponse)
 async def upload_audio(
     tractor_id: str = Query(..., description="Tractor ID"),
-    file: UploadFile = File(..., description="Audio file (.wav, .flac, .mp3, .ogg)"),
+    file: UploadFile = File(..., description="Audio file (.wav, .mp3, etc.)"),
     current_user: User = Depends(get_current_user)
 ):
     """
     Upload audio file and get tractor health prediction using ResNet CNN Transfer Learning
     
-    **Supported formats:** .wav, .flac, .mp3, .ogg
-    
     The model analyzes audio patterns to detect:
     - Normal operation
-    - Minor anomalies (0.5-0.6)
-    - Unusual noise (0.6-0.75)
-    - High vibration (0.75-0.9)
-    - Critical anomalies (>0.9)
+    - Minor anomalies
+    - Unusual noise
+    - High vibration
+    - Critical anomalies
     """
     
     start_time = time.time()
@@ -65,42 +60,32 @@ async def upload_audio(
                 detail=f"Tractor {tractor_id} not found"
             )
         
-        # Validate audio format
-        file_ext = os.path.splitext(file.filename)[1].lower()
-        
-        if file_ext not in SUPPORTED_FORMATS:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Audio format '{file_ext}' not supported. Please use one of: {', '.join(sorted(SUPPORTED_FORMATS))}"
-            )
-        
         # Save file
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        filename = f"{tractor_id}_{timestamp}{file_ext}"
+        file_extension = os.path.splitext(file.filename)[1]
+        filename = f"{tractor_id}_{timestamp}{file_extension}"
         file_path = UPLOAD_DIR / filename
         
-        logger.info(f"📁 Saving audio file: {filename}")
+        logger.info(f"Saving audio file: {filename}")
         content = await file.read()
         with open(file_path, "wb") as f:
             f.write(content)
         
         # Get file info
         file_size = len(content)
-        logger.info(f"📊 File size: {file_size / 1024:.2f} KB")
         
         # Get audio metadata
         try:
             y, sr = librosa.load(str(file_path), duration=None)
             duration = float(len(y) / sr)
             sample_rate = int(sr)
-            logger.info(f"🎵 Audio: {duration:.2f}s @ {sample_rate}Hz")
         except Exception as e:
-            logger.warning(f"⚠️  Could not read audio metadata: {e}")
+            logger.warning(f"Could not read audio metadata: {e}")
             duration = 10.0
             sample_rate = 16000
         
         # Make prediction using ResNet transfer learning
-        logger.info(f"🤖 Running ResNet CNN prediction for tractor: {tractor_id}")
+        logger.info(f"Running ResNet CNN prediction for tractor: {tractor_id}")
         prediction_start = time.time()
         
         prediction_result = await ml_service.predict_audio(
@@ -114,7 +99,6 @@ async def upload_audio(
         prediction_class = prediction_result["prediction_class"].lower()
         confidence = prediction_result["confidence"]
         anomaly_score = prediction_result.get("anomaly_score", 0.0)
-        anomaly_type = prediction_result.get("anomaly_type")
         model_used = prediction_result.get("model_used", "ResNet_Transfer_Learning")
         
         # Create prediction with exact schema fields
@@ -139,11 +123,12 @@ async def upload_audio(
         
         await audio_prediction.insert()
         
-        # Log result
+        # Log with anomaly type if available
+        anomaly_type = prediction_result.get("anomaly_type")
         if anomaly_type:
-            logger.info(f"✅ Prediction saved: {prediction_class} ({anomaly_type}, confidence: {confidence:.2%}, {processing_time:.0f}ms)")
+            logger.info(f"✅ Prediction saved: {prediction_class} ({anomaly_type}, confidence: {confidence:.2%})")
         else:
-            logger.info(f"✅ Prediction saved: {prediction_class} (confidence: {confidence:.2%}, {processing_time:.0f}ms)")
+            logger.info(f"✅ Prediction saved: {prediction_class} (confidence: {confidence:.2%})")
         
         # Return response
         return AudioPredictionResponse(
@@ -162,7 +147,7 @@ async def upload_audio(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Error processing audio: {str(e)}", exc_info=True)
+        logger.error(f"❌ Error processing audio: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error processing audio: {str(e)}"
@@ -172,7 +157,7 @@ async def upload_audio(
 @router.get("/predictions/{tractor_id}")
 async def get_predictions(
     tractor_id: str,
-    limit: int = Query(50, ge=1, le=100, description="Number of predictions to return"),
+    limit: int = Query(50, ge=1, le=100),
     current_user: User = Depends(get_current_user)
 ):
     """Get audio prediction history for a tractor"""
@@ -223,12 +208,10 @@ async def get_model_info(current_user: User = Depends(get_current_user)):
         "description": "Deep learning model trained on MIMII industrial sounds + tractor audio",
         "architecture": "ResNet with Focal Loss for class imbalance",
         "status": "loaded" if model_info.get("model_loaded") else "not_loaded",
-        "supported_formats": list(SUPPORTED_FORMATS),
         "features": model_info.get("features", {}),
         "preprocessing": model_info.get("preprocessing", {}),
         "classes": ["normal", "abnormal"],
         "anomaly_classification": {
-            "normal": "Probability 0.0-0.5",
             "minor_anomaly": "Probability 0.5-0.6",
             "unusual_noise": "Probability 0.6-0.75",
             "high_vibration": "Probability 0.75-0.9",
@@ -270,8 +253,7 @@ async def get_prediction_statistics(
             "total_predictions": 0,
             "normal_count": 0,
             "abnormal_count": 0,
-            "average_confidence": 0.0,
-            "message": "No predictions found for this tractor"
+            "average_confidence": 0.0
         }
     
     # Calculate statistics
@@ -284,48 +266,26 @@ async def get_prediction_statistics(
     recent = predictions[-10:] if len(predictions) > 10 else predictions
     recent_abnormal = sum(1 for p in recent if p.prediction_class == "abnormal")
     
-    # Calculate average processing time
-    processing_times = [getattr(p, 'processing_time_ms', 0) for p in predictions if hasattr(p, 'processing_time_ms')]
-    avg_processing_time = sum(processing_times) / len(processing_times) if processing_times else 0
-    
     return {
         "tractor_id": tractor_id.upper(),
         "total_predictions": total,
         "normal_count": normal_count,
         "abnormal_count": abnormal_count,
-        "normal_percentage": round((normal_count / total) * 100, 2),
-        "abnormal_percentage": round((abnormal_count / total) * 100, 2),
-        "average_confidence": round(avg_confidence, 4),
-        "average_processing_time_ms": round(avg_processing_time, 2),
+        "normal_percentage": (normal_count / total) * 100,
+        "abnormal_percentage": (abnormal_count / total) * 100,
+        "average_confidence": avg_confidence,
         "model": "ResNet CNN Transfer Learning",
         "recent_trend": {
-            "last_predictions_count": len(recent),
-            "abnormal_in_recent": recent_abnormal,
+            "last_10_predictions": len(recent),
+            "abnormal_in_last_10": recent_abnormal,
             "health_status": "Critical" if recent_abnormal >= 7 else "Warning" if recent_abnormal >= 4 else "Good"
         },
         "latest_prediction": {
             "class": predictions[-1].prediction_class,
-            "confidence": round(predictions[-1].confidence, 4),
+            "confidence": predictions[-1].confidence,
             "model_used": getattr(predictions[-1], 'model_used', 'ResNet_Transfer_Learning'),
             "recorded_at": predictions[-1].recorded_at
         } if predictions else None
-    }
-
-
-@router.get("/formats")
-async def get_supported_formats():
-    """Get list of supported audio formats"""
-    return {
-        "supported_formats": sorted(list(SUPPORTED_FORMATS)),
-        "recommended": [".wav", ".flac"],
-        "notes": {
-            ".wav": "Uncompressed audio - Best quality, larger files",
-            ".flac": "Lossless compression - Good quality, smaller than WAV",
-            ".mp3": "Lossy compression - Good quality, small files",
-            ".ogg": "Open format - Good quality, small files"
-        },
-        "not_supported": [".m4a", ".aac", ".wma"],
-        "tip": "For best results, use .wav or .flac format"
     }
 
 
@@ -339,10 +299,6 @@ async def test_audio_upload(
     Returns file information without performing prediction
     """
     try:
-        # Check format
-        file_ext = os.path.splitext(file.filename)[1].lower()
-        is_supported = file_ext in SUPPORTED_FORMATS
-        
         file_size = 0
         chunk_size = 1024 * 1024  # 1MB chunks
         
@@ -352,12 +308,9 @@ async def test_audio_upload(
         return {
             "success": True,
             "filename": file.filename,
-            "format": file_ext,
-            "is_supported": is_supported,
             "content_type": file.content_type,
-            "size_bytes": file_size,
             "size_mb": round(file_size / (1024 * 1024), 2),
-            "message": f"File uploaded successfully. Format {file_ext} is {'supported' if is_supported else 'NOT supported'}."
+            "message": "File uploaded successfully. Ready for ResNet prediction."
         }
         
     except Exception as e:

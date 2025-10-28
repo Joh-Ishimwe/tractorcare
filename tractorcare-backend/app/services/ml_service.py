@@ -1,48 +1,70 @@
 """
 ML Service for Audio Prediction
-Loads models directly from Google Drive 
+Uses ResNet CNN Transfer Learning Model
 """
 
 import librosa
 import numpy as np
-import joblib
 import os
 import gdown
 from pathlib import Path
-import json
 import logging
-from scipy.signal import butter, filtfilt
+import tensorflow as tf
+from tensorflow import keras
+from keras.saving import register_keras_serializable
+from typing import Dict, Optional
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
+
+@register_keras_serializable()
+class FocalLoss(tf.keras.losses.Loss):
+    """Custom Focal Loss for handling class imbalance"""
+    
+    def __init__(self, gamma=2.0, alpha=0.75, name="FocalLoss", **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.gamma = gamma
+        self.alpha = alpha
+    
+    def call(self, y_true, y_pred):
+        y_pred = tf.clip_by_value(y_pred, 1e-7, 1 - 1e-7)
+        pt = y_true * y_pred + (1 - y_true) * (1 - y_pred)
+        w = self.alpha * y_true + (1 - self.alpha) * (1 - y_true)
+        return -tf.reduce_mean(w * tf.pow(1.0 - pt, self.gamma) * tf.math.log(pt))
+    
+    def get_config(self):
+        config = super().get_config()
+        config.update({"gamma": self.gamma, "alpha": self.alpha})
+        return config
+
+
 class MLService:
-    """Machine Learning service for audio prediction"""
+    """Machine Learning service using ResNet CNN Transfer Learning"""
     
-    # Google Drive file IDs for your models
-    DRIVE_FILES = {
-        "scaler": "1kTN6qifz2_8MetWsoCOQwXZD8lfHUDHr",
-        "svm": "11Af09dSh-u1QFUevu-x6vkMr4XHdH3eK",
-        "config": "1wmKKS_5l2JeArHD06MwkJdmR868K33Pn"
-    }
+    # Google Drive file ID for ResNet model
+    RESNET_DRIVE_ID = "17OnJBfLt21PAbESv2-krhYZ0X2YbRcyc"
     
-    # Default config matching training
-    DEFAULT_CONFIG = {
-        "sample_rate": 22050,
-        "duration": 5.0,
+    # ResNet model configuration
+    CONFIG = {
+        "sample_rate": 16000,
+        "duration": 10,
         "n_mfcc": 40,
-        "max_len": 216,  # ~5 seconds at default hop_length
-        "apply_highpass": True
+        "max_len": 100,
+        "apply_highpass": False
     }
     
     def __init__(self):
         self.model = None
-        self.scaler = None
-        self.config = None
         self.model_dir = Path("temp_models")
         self.model_dir.mkdir(exist_ok=True)
+        
+        # Tractor-specific models directory
+        self.tractors_dir = self.model_dir / "tractors"
+        self.tractors_dir.mkdir(exist_ok=True)
+        
         logger.info("🚀 Initializing ML Service...")
-        self._download_and_load_models()
+        self._download_and_load_model()
     
     def _download_from_drive(self, file_id: str, output_path: str) -> bool:
         """Download file from Google Drive"""
@@ -56,93 +78,62 @@ class MLService:
             logger.error(f"❌ Error downloading {output_path}: {e}")
             return False
     
-    def _download_and_load_models(self):
-        """Download models from Google Drive and load them"""
+    def _download_and_load_model(self):
+        """Download and load ResNet transfer learning model"""
         try:
-            logger.info("🔍 Checking for models...")
+            logger.info("🔍 Checking for ResNet model...")
             
-            # Download scaler
-            scaler_path = self.model_dir / "scaler.pkl"
-            if not scaler_path.exists():
-                logger.info("📦 Scaler not found locally, downloading...")
-                self._download_from_drive(self.DRIVE_FILES["scaler"], str(scaler_path))
-            else:
-                logger.info("✅ Scaler found in cache")
+            model_path = self.model_dir / "tractor_resnet_final.keras"
             
-            if scaler_path.exists():
-                self.scaler = joblib.load(scaler_path)
-                logger.info("✅ Scaler loaded successfully")
-            
-            # Download SVM model
-            model_path = self.model_dir / "svm.pkl"
+            # Download if not exists
             if not model_path.exists():
-                logger.info("📦 SVM model not found locally, downloading...")
-                self._download_from_drive(self.DRIVE_FILES["svm"], str(model_path))
+                logger.info("📦 ResNet model not found locally, downloading from Google Drive...")
+                success = self._download_from_drive(self.RESNET_DRIVE_ID, str(model_path))
+                if not success:
+                    raise Exception("Failed to download ResNet model from Google Drive")
             else:
-                logger.info("✅ SVM model found in cache")
+                logger.info("✅ ResNet model found in cache")
             
+            # Load model with custom objects
             if model_path.exists():
-                self.model = joblib.load(model_path)
-                logger.info("✅ SVM model loaded successfully")
-            
-            # Download config
-            config_path = self.model_dir / "config.json"
-            if not config_path.exists():
-                logger.info("📦 Config not found locally, downloading...")
-                self._download_from_drive(self.DRIVE_FILES["config"], str(config_path))
+                # Register FocalLoss before loading
+                custom_objects = {'FocalLoss': FocalLoss}
+                
+                self.model = keras.models.load_model(
+                    model_path,
+                    custom_objects=custom_objects
+                )
+                logger.info("✅ ResNet transfer learning model loaded successfully")
+                logger.info("🎉 ML Service ready for predictions!")
             else:
-                logger.info("✅ Config found in cache")
-            
-            if config_path.exists():
-                with open(config_path, 'r') as f:
-                    loaded_config = json.load(f)
-                    # Merge with defaults
-                    self.config = {**self.DEFAULT_CONFIG, **loaded_config}
-                logger.info("✅ Config loaded successfully")
-            else:
-                self.config = self.DEFAULT_CONFIG
-                logger.info("⚠️ Using default config")
-            
-            # Check if models loaded
-            if self.model is None or self.scaler is None:
-                logger.warning("⚠️ WARNING: Models not fully loaded!")
-            else:
-                logger.info("🎉 All models loaded successfully! Ready for predictions.")
+                raise Exception("ResNet model file not found after download attempt")
                 
         except Exception as e:
-            logger.error(f"❌ Error loading models: {e}")
+            logger.error(f"❌ Error loading model: {e}")
             raise
     
     def extract_mfcc_features(self, file_path: str) -> np.ndarray:
         """
-        Extract MFCC features matching training pipeline
-        
+        Extract MFCC features for ResNet model
         Returns MFCC of shape (n_mfcc, max_len)
         """
         try:
             # Load audio
             audio, sr = librosa.load(
                 file_path,
-                sr=self.config["sample_rate"],
-                duration=self.config["duration"]
+                sr=self.CONFIG["sample_rate"],
+                duration=self.CONFIG["duration"]
             )
-            
-            # Optional high-pass filter to reduce low-frequency noise
-            if self.config.get("apply_highpass", True):
-                nyquist = sr / 2
-                cutoff = 100  # Hz
-                b, a = butter(4, cutoff / nyquist, btype='high')
-                audio = filtfilt(b, a, audio)
             
             # Extract MFCCs
             mfcc = librosa.feature.mfcc(
                 y=audio,
                 sr=sr,
-                n_mfcc=self.config["n_mfcc"]
+                n_mfcc=self.CONFIG["n_mfcc"]
             )
             
             # Pad or truncate to fixed length
-            max_len = self.config["max_len"]
+            max_len = self.CONFIG["max_len"]
             if mfcc.shape[1] < max_len:
                 pad_width = max_len - mfcc.shape[1]
                 mfcc = np.pad(mfcc, pad_width=((0, 0), (0, pad_width)), mode='constant')
@@ -155,114 +146,62 @@ class MLService:
             logger.error(f"❌ Error extracting MFCC: {e}")
             raise
     
-    def compute_statistics(self, mfcc: np.ndarray) -> np.ndarray:
-        """
-        Compute statistical features from MFCC for traditional ML models
-        
-        Features computed:
-        - Mean, Std, Max, Min, Median of MFCCs (5 x n_mfcc)
-        - Delta (1st derivative) mean and std (2 x n_mfcc)
-        - Delta-Delta (2nd derivative) mean and std (2 x n_mfcc)
-        
-        Total: 9 x n_mfcc features (9 x 40 = 360)
-        """
-        # Basic statistics
-        mean = np.mean(mfcc, axis=1)
-        std = np.std(mfcc, axis=1)
-        maximum = np.max(mfcc, axis=1)
-        minimum = np.min(mfcc, axis=1)
-        median = np.median(mfcc, axis=1)
-        
-        # Delta features (velocity)
-        delta = librosa.feature.delta(mfcc)
-        delta_mean = np.mean(delta, axis=1)
-        delta_std = np.std(delta, axis=1)
-        
-        # Delta-Delta features (acceleration)
-        delta2 = librosa.feature.delta(mfcc, order=2)
-        delta2_mean = np.mean(delta2, axis=1)
-        delta2_std = np.std(delta2, axis=1)
-        
-        # Concatenate all features
-        stats = np.concatenate([
-            mean, std, maximum, minimum, median,
-            delta_mean, delta_std, delta2_mean, delta2_std
-        ])
-        
-        return stats
-    
-    def extract_features(self, audio_path: str) -> np.ndarray:
-        """
-        Extract features from audio file matching training pipeline
-        
-        Returns flattened array of 360 statistical features
-        """
-        try:
-            logger.info(f"🎵 Extracting features from: {audio_path}")
-            
-            # Extract MFCCs
-            mfcc = self.extract_mfcc_features(audio_path)
-            
-            # Compute statistics
-            stats = self.compute_statistics(mfcc)
-            
-            logger.info(f"✅ Extracted {len(stats)} features")
-            
-            return stats.reshape(1, -1)
-            
-        except Exception as e:
-            logger.error(f"❌ Error extracting features: {e}")
-            raise
-    
     async def predict_audio(self, audio_path: str, tractor_id: str) -> dict:
-        """Predict tractor condition from audio"""
+        """
+        Predict tractor condition from audio using ResNet transfer learning
+        
+        Args:
+            audio_path: Path to audio file
+            tractor_id: Tractor identifier
+            
+        Returns:
+            Dictionary with prediction results
+        """
         try:
             logger.info(f"🔮 Making prediction for tractor: {tractor_id}")
             
             if self.model is None:
-                raise ValueError("Model not loaded. Please check Google Drive file IDs.")
+                raise ValueError("Model not loaded. Please check Google Drive connection.")
             
-            # Extract features
-            features = self.extract_features(audio_path)
+            # Extract MFCC features
+            mfcc = self.extract_mfcc_features(audio_path)
             
-            # Scale features
-            if self.scaler is not None:
-                features_scaled = self.scaler.transform(features)
+            # Prepare input (add batch and channel dimensions)
+            X = np.expand_dims(np.expand_dims(mfcc, 0), -1)
+            
+            # Predict
+            probability = self.model.predict(X, verbose=0)[0][0]
+            is_anomaly = probability > 0.5
+            confidence = probability if is_anomaly else 1 - probability
+            
+            # Classify anomaly type based on probability
+            if probability < 0.5:
+                anomaly_type = None
+            elif probability > 0.9:
+                anomaly_type = "critical_anomaly"
+            elif probability > 0.75:
+                anomaly_type = "high_vibration"
+            elif probability > 0.6:
+                anomaly_type = "unusual_noise"
             else:
-                features_scaled = features
-                logger.warning("⚠️ No scaler available, using raw features")
+                anomaly_type = "minor_anomaly"
             
-            # Make prediction
-            prediction = self.model.predict(features_scaled)[0]
-            
-            # Get confidence
-            if hasattr(self.model, 'predict_proba'):
-                probabilities = self.model.predict_proba(features_scaled)[0]
-                confidence = float(np.max(probabilities))
-            else:
-                confidence = 0.95
-            
-            # Map to class name
-            class_mapping = {
-                0: "Normal",
-                1: "Abnormal",
-                "Normal": "Normal",
-                "Abnormal": "Abnormal"
-            }
-            prediction_class = class_mapping.get(prediction, str(prediction))
-            
-            # Calculate anomaly score
-            anomaly_score = 1.0 - confidence if prediction_class == "Normal" else confidence
+            # Map to standard class names (Normal/Abnormal)
+            prediction_class = "Abnormal" if is_anomaly else "Normal"
+            anomaly_score = float(probability)
             
             logger.info(f"✅ Prediction: {prediction_class} (confidence: {confidence:.2%})")
+            if anomaly_type:
+                logger.info(f"   Anomaly type: {anomaly_type}")
             
             return {
                 "prediction_class": prediction_class,
-                "confidence": confidence,
+                "confidence": float(confidence),
                 "anomaly_score": anomaly_score,
+                "anomaly_type": anomaly_type,
                 "tractor_id": tractor_id,
-                "model_used": "SVM",
-                "features_count": features.shape[1]
+                "model_used": "ResNet_Transfer_Learning",
+                "features_count": self.CONFIG["n_mfcc"] * self.CONFIG["max_len"]
             }
             
         except Exception as e:
@@ -270,14 +209,31 @@ class MLService:
             raise
     
     def get_model_info(self) -> dict:
-        """Get information about loaded models"""
+        """Get information about the loaded model"""
         return {
+            "model_name": "ResNet CNN Transfer Learning",
             "model_loaded": self.model is not None,
-            "scaler_loaded": self.scaler is not None,
-            "config_loaded": self.config is not None,
-            "model_type": type(self.model).__name__ if self.model else None,
+            "model_type": "Deep Learning CNN",
+            "architecture": "ResNet with Focal Loss",
+            "training_data": "MIMII Industrial Sounds + Tractor Audio",
+            "features": {
+                "type": "MFCC Spectrograms",
+                "n_mfcc": self.CONFIG["n_mfcc"],
+                "timesteps": self.CONFIG["max_len"],
+                "total_features": self.CONFIG["n_mfcc"] * self.CONFIG["max_len"]
+            },
+            "preprocessing": {
+                "sample_rate": self.CONFIG["sample_rate"],
+                "duration": self.CONFIG["duration"],
+                "highpass_filter": self.CONFIG["apply_highpass"]
+            },
+            "classes": ["Normal", "Abnormal"],
+            "anomaly_types": [
+                "minor_anomaly (0.5-0.6)",
+                "unusual_noise (0.6-0.75)",
+                "high_vibration (0.75-0.9)",
+                "critical_anomaly (>0.9)"
+            ],
             "source": "Google Drive",
-            "n_mfcc": self.config.get("n_mfcc", "N/A"),
-            "sample_rate": self.config.get("sample_rate", "N/A"),
-            "expected_features": self.config.get("n_mfcc", 40) * 9
+            "file_id": self.RESNET_DRIVE_ID
         }

@@ -4,7 +4,7 @@ Handles environment variables and settings
 """
 
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Optional
 from functools import lru_cache
 
 
@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     # ML Models
     ML_MODEL_API_URL: str = "http://localhost:5000"
     ML_MODEL_TIMEOUT: int = 30
+    MODEL_GDRIVE_ID: Optional[str] = None  # Google Drive ID for model download
+    ML_MODEL_PATH: Optional[str] = None    # Local path to saved model
     
     # Logging
     LOG_LEVEL: str = "INFO"

@@ -1,6 +1,6 @@
 """
 TractorCare FastAPI Main Application
-Production-ready with all routes + ML Service initialization
+Production-ready with all routes
 """
 
 from fastapi import FastAPI, Request
@@ -26,15 +26,8 @@ async def lifespan(app: FastAPI):
     """Lifecycle events for FastAPI"""
     # Startup
     logger.info("Starting TractorCare API...")
-    
-    # Initialize database
     await Database.connect_db()
     await Database.seed_maintenance_schedules()
-    
-    # ML Service is initialized automatically when audio routes are imported
-    # (MLService() is called in app/routes/audio.py)
-    logger.info("✅ ML Service initialized via routes")
-    
     logger.info("TractorCare API started successfully")
     
     yield
@@ -97,13 +90,7 @@ async def root():
     return {
         "message": "TractorCare API",
         "version": settings.API_VERSION,
-        "docs": "/docs",
-        "features": [
-            "Audio Anomaly Detection (ResNet Transfer Learning)",
-            "Predictive Maintenance",
-            "Tractor Management",
-            "User Authentication"
-        ]
+        "docs": "/docs"  
     }
 
 
