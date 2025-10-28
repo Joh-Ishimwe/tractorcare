@@ -108,19 +108,28 @@ async def root():
 
 
 # Import and include routers
-from app.routes import auth, tractors, maintenance, audio, statistics
+from app.routes import auth, tractors, maintenance, audio, statistics, baseline, demo
 
 app.include_router(
     auth.router,
     prefix="/auth", 
     tags=["Authentication"]
 )
-
+app.include_router(
+    demo.router,
+    prefix="/demo", 
+    tags=["Quick Model test"]
+)
 app.include_router(
     tractors.router,
     prefix="/tractors", 
     tags=["Tractors"]
 )
+app.include_router(
+    baseline.router, 
+    prefix="/baseline", 
+    tags=["Baseline"])
+
 
 app.include_router(
     maintenance.router,

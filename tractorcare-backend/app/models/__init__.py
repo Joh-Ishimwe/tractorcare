@@ -1,10 +1,10 @@
 """
 MongoDB Models using Beanie ODM
 NO cost estimates - only verifiable data from manuals
+UPDATED: Added baseline models for personalized audio predictions
 """
 
 from datetime import datetime
-# from typing import Optional, List
 from typing import Dict, List, Optional
 from enum import Enum
 from beanie import Document, Indexed
@@ -64,6 +64,30 @@ class HealthStatus(str, Enum):
     GOOD = "good"
     FAIR = "fair"
     POOR = "poor"
+    CRITICAL = "critical"
+
+
+class BaselineStatus(str, Enum):
+    """Status of baseline establishment"""
+    ESTABLISHING = "establishing"
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+    INVALID = "invalid"
+
+
+class LoadCondition(str, Enum):
+    """Tractor load condition during recording"""
+    IDLE = "idle"
+    LIGHT = "light"
+    NORMAL = "normal"
+    HEAVY = "heavy"
+
+
+class TrendStatus(str, Enum):
+    """Health trend status"""
+    NORMAL = "normal"
+    WATCH = "watch"
+    WARNING = "warning"
     CRITICAL = "critical"
 
 
@@ -127,7 +151,6 @@ class User(Document):
     
     class Settings:
         name = "users"
-        # indexes = ["email"]
 
 
 class Tractor(Document):
@@ -146,6 +169,7 @@ class Tractor(Document):
     # Maintenance tracking
     last_maintenance: Dict[str, LastMaintenanceRecord] = Field(default_factory=dict)
     parts_used: List[str] = Field(default_factory=list)
+    
     # Metadata
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -205,9 +229,6 @@ class MaintenanceAlert(Document):
     audio_anomaly_score: Optional[float] = None
     related_prediction_id: Optional[str] = None
     
-    # NO COST ESTIMATES!
-    # Cost is determined by user's mechanic
-    
     class Settings:
         name = "maintenance_alerts"
         indexes = ["tractor_id", "status", "due_date"]
@@ -226,8 +247,7 @@ class AudioPrediction(Document):
     # Prediction
     prediction_class: PredictionClass
     confidence: float
-    anomaly_score: Optional[float] = None  # ← Add this line
-
+    anomaly_score: Optional[float] = None
     model_used: str
     
     # Audio features
@@ -284,6 +304,123 @@ class MaintenanceSchedule(Document):
 
 
 # ============================================================================
+# BASELINE MODELS (For Personalized Audio Predictions)
+# ============================================================================
+
+class TractorBaseline(Document):
+    """
+    Store baseline "normal" sound signature for each tractor
+    This is the reference for what THIS specific tractor sounds like when healthy
+    """
+    tractor_id: str = Field(..., description="Tractor identifier")
+    
+    # Baseline MFCC features
+    baseline_mean: List[float] = Field(..., description="Mean MFCC features (4000 values)")
+    baseline_std: List[float] = Field(..., description="Standard deviation of MFCCs")
+    
+    # When baseline was established
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    tractor_hours: float = Field(..., description="Engine hours when baseline created")
+    
+    # Baseline quality metrics
+    num_samples: int = Field(..., description="Number of recordings used")
+    sample_files: List[str] = Field(default_factory=list, description="Paths to baseline recordings")
+    confidence: float = Field(default=1.0, description="Baseline quality score (0-1)")
+    
+    # Recording conditions
+    load_condition: LoadCondition = Field(default=LoadCondition.NORMAL)
+    temperature_celsius: Optional[float] = None
+    location: Optional[str] = None
+    
+    # Status
+    status: BaselineStatus = Field(default=BaselineStatus.ACTIVE)
+    is_active: bool = Field(default=True)
+    
+    # Metadata
+    notes: str = Field(default="")
+    created_by: str = Field(default="system")
+    
+    # Reference to previous baseline (if updated)
+    previous_baseline_id: Optional[str] = None
+    update_reason: Optional[str] = None  # e.g., "post_maintenance", "degradation_reset"
+    
+    class Settings:
+        name = "tractor_baselines"
+        indexes = [
+            "tractor_id",
+            [("tractor_id", 1), ("is_active", -1)],  # Find active baseline
+            "created_at"
+        ]
+
+
+class AudioTrend(Document):
+    """
+    Track audio changes over time for a tractor
+    Each prediction creates a trend point
+    """
+    tractor_id: str = Field(..., description="Tractor identifier")
+    
+    # Time tracking
+    recorded_at: datetime = Field(default_factory=datetime.utcnow)
+    tractor_hours: float = Field(..., description="Engine hours at recording")
+    
+    # Scores
+    resnet_score: float = Field(..., description="ResNet anomaly probability (0-1)")
+    deviation_score: float = Field(..., description="Deviation from baseline (std deviations)")
+    combined_score: float = Field(..., description="Weighted combination of both scores")
+    
+    # Classification
+    status: TrendStatus = Field(..., description="Health status classification")
+    anomaly_type: Optional[str] = None  # minor_anomaly, unusual_noise, etc.
+    
+    # References
+    baseline_id: str = Field(..., description="Which baseline was used")
+    prediction_id: str = Field(..., description="Link to AudioPrediction")
+    
+    # Comparison data
+    deviation_percentage: float = Field(default=0.0, description="% of features that are anomalous")
+    max_deviation: float = Field(default=0.0, description="Maximum single feature deviation")
+    
+    class Settings:
+        name = "audio_trends"
+        indexes = [
+            "tractor_id",
+            [("tractor_id", 1), ("tractor_hours", 1)],  # For trend analysis
+            "recorded_at",
+            "status"
+        ]
+
+
+class BaselineMetadata(Document):
+    """
+    Metadata about baseline establishment process
+    Tracks the collection of samples for a baseline
+    """
+    tractor_id: str
+    baseline_id: Optional[str] = None  # Set when baseline is finalized
+    
+    # Collection status
+    target_samples: int = Field(default=5, description="Target number of samples")
+    collected_samples: int = Field(default=0)
+    sample_files: List[str] = Field(default_factory=list)
+    
+    # Collection period
+    started_at: datetime = Field(default_factory=datetime.utcnow)
+    completed_at: Optional[datetime] = None
+    
+    # Instructions for user
+    instructions: str = Field(
+        default="Record tractor audio when: 1) Engine warmed up, 2) Normal operating conditions, 3) No unusual sounds"
+    )
+    
+    status: BaselineStatus = Field(default=BaselineStatus.ESTABLISHING)
+    
+    class Settings:
+        name = "baseline_metadata"
+        indexes = ["tractor_id", "status"]
+
+
+# ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
 
@@ -297,4 +434,7 @@ async def get_all_document_models():
         AudioPrediction,
         Anomaly,
         MaintenanceSchedule,
+        TractorBaseline,        # NEW: Baseline model
+        AudioTrend,             # NEW: Trend tracking
+        BaselineMetadata,       # NEW: Baseline metadata
     ]

@@ -1,5 +1,6 @@
 """
 Pydantic Schemas for API Request/Response
+UPDATED: Added AudioPredictionListResponse for pagination
 """
 
 from datetime import datetime
@@ -197,15 +198,29 @@ class AudioUploadResponse(BaseModel):
 
 
 class AudioPredictionResponse(BaseModel):
-    """Schema for audio prediction history"""
+    """Schema for audio prediction response"""
     id: str
     tractor_id: str
     filename: str
-    prediction_class: PredictionClass
+    prediction_class: str
     confidence: float
+    anomaly_score: Optional[float] = None
+    file_path: str  # ← Changed from audio_file_path to file_path
+    recorded_at: datetime
     model_used: str
     duration_seconds: float
-    recorded_at: datetime
+    baseline_comparison: Optional[dict] = None
+    
+    class Config:
+        from_attributes = True
+
+
+class AudioPredictionListResponse(BaseModel):
+    """Schema for paginated list of audio predictions"""
+    predictions: List[AudioPredictionResponse]
+    total: int
+    skip: int
+    limit: int
     
     class Config:
         from_attributes = True

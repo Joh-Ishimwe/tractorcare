@@ -1,45 +1,55 @@
 ﻿"""
-Audio Upload and Prediction Routes
-Uses ResNet CNN Transfer Learning Model
+Audio prediction routes with baseline integration
+Complete file for: app/routes/audio.py
+FIXED: Corrected schema imports
 """
 
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, status, Query
-from typing import Optional
+from typing import Optional, List
 import os
 from datetime import datetime
 from pathlib import Path
+import time
 import logging
 import librosa
-import time
+import numpy as np
 
 from app.models import User, Tractor, AudioPrediction
 from app.core.security import get_current_user
-from app.services.ml_service import MLService
-from app.schemas import AudioPredictionResponse
 
+# ===== FIXED IMPORT - Use your actual schemas location =====
+# If you have app/schemas.py (single file):
+from app.schemas import AudioPredictionResponse, AudioPredictionListResponse
+
+# OR if you have app/schemas/audio.py (separate files):
+# from app.schemas.audio import AudioPredictionResponse, AudioPredictionListResponse
+
+from app.services.ml_service import ml_service
+
+# ===== ROUTER DEFINITION =====
 router = APIRouter()
+
 logger = logging.getLogger(__name__)
 
-# Initialize ML service
-ml_service = MLService()
+# Create upload directory
+UPLOAD_DIR = Path("uploads/audio")
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # Supported audio formats
 SUPPORTED_FORMATS = {'.wav', '.flac', '.mp3', '.ogg'}
-
-# Create uploads directory
-UPLOAD_DIR = Path("uploads/audio")
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
 @router.post("/upload", response_model=AudioPredictionResponse)
 async def upload_audio(
     tractor_id: str = Query(..., description="Tractor ID"),
     file: UploadFile = File(..., description="Audio file (.wav, .flac, .mp3, .ogg)"),
+    tractor_hours: Optional[float] = Query(None, description="Current tractor hours"),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Upload audio file and get tractor health prediction using ResNet CNN Transfer Learning
+    Upload audio file and get tractor health prediction with baseline comparison
     
+    **New:** If baseline exists, compares against tractor-specific baseline
     **Supported formats:** .wav, .flac, .mp3, .ogg
     
     The model analyzes audio patterns to detect:
@@ -48,6 +58,9 @@ async def upload_audio(
     - Unusual noise (0.6-0.75)
     - High vibration (0.75-0.9)
     - Critical anomalies (>0.9)
+    
+    **With Baseline:** Gets personalized analysis comparing to THIS tractor's normal sound
+    **Without Baseline:** Uses general ResNet model only
     """
     
     start_time = time.time()
@@ -64,6 +77,9 @@ async def upload_audio(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Tractor {tractor_id} not found"
             )
+        
+        # Use tractor hours from query or database
+        current_hours = tractor_hours if tractor_hours is not None else tractor.engine_hours
         
         # Validate audio format
         file_ext = os.path.splitext(file.filename)[1].lower()
@@ -99,6 +115,27 @@ async def upload_audio(
             duration = 10.0
             sample_rate = 16000
         
+        # ===== NEW: Check for baseline =====
+        try:
+            from app.services.baseline_service import baseline_service
+            from app.models import TractorBaseline, AudioTrend
+            
+            baseline = await baseline_service.get_active_baseline(
+                tractor_id.upper(),
+                TractorBaseline
+            )
+            
+            has_baseline = baseline is not None
+            
+            if has_baseline:
+                logger.info(f"✅ Using baseline (created at {baseline.tractor_hours}h)")
+            else:
+                logger.info(f"ℹ️  No baseline - using ResNet only")
+        except ImportError:
+            logger.warning("⚠️  Baseline service not available, using ResNet only")
+            has_baseline = False
+            baseline = None
+        
         # Make prediction using ResNet transfer learning
         logger.info(f"🤖 Running ResNet CNN prediction for tractor: {tractor_id}")
         prediction_start = time.time()
@@ -110,14 +147,61 @@ async def upload_audio(
         
         processing_time = (time.time() - prediction_start) * 1000  # Convert to ms
         
-        # Map prediction to lowercase (matches PredictionClass enum)
-        prediction_class = prediction_result["prediction_class"].lower()
-        confidence = prediction_result["confidence"]
-        anomaly_score = prediction_result.get("anomaly_score", 0.0)
-        anomaly_type = prediction_result.get("anomaly_type")
-        model_used = prediction_result.get("model_used", "ResNet_Transfer_Learning")
+        # ===== NEW: If baseline exists, calculate deviation =====
+        deviation_info = None
+        combined_analysis = None
         
-        # Create prediction with exact schema fields
+        if has_baseline and baseline:
+            try:
+                # Extract MFCC from new audio
+                new_mfcc = baseline_service.extract_mfcc_features(str(file_path))
+                
+                # Get baseline arrays
+                baseline_mean = np.array(baseline.baseline_mean)
+                baseline_std = np.array(baseline.baseline_std)
+                
+                # Calculate deviation
+                deviation_info = baseline_service.calculate_deviation(
+                    new_mfcc,
+                    baseline_mean,
+                    baseline_std
+                )
+                
+                # Combine scores
+                combined_analysis = baseline_service.combine_scores(
+                    resnet_score=prediction_result["anomaly_score"],
+                    deviation_score=deviation_info["average_deviation"]
+                )
+                
+                logger.info(f"📊 Baseline comparison: {deviation_info['average_deviation']:.2f}σ deviation")
+                logger.info(f"🎯 Combined status: {combined_analysis['status']}")
+                
+            except Exception as e:
+                logger.error(f"❌ Error in baseline comparison: {e}")
+                # Continue with ResNet-only prediction
+                has_baseline = False
+        
+        # Determine final values
+        if has_baseline and combined_analysis:
+            # Use combined analysis
+            final_class = combined_analysis["status"]
+            final_confidence = combined_analysis["combined_score"]
+            final_anomaly_score = combined_analysis["combined_score"]
+            final_model = "ResNet_with_Baseline"
+        else:
+            # Use ResNet only
+            final_class = prediction_result["prediction_class"].lower()
+            final_confidence = prediction_result["confidence"]
+            final_anomaly_score = prediction_result.get("anomaly_score", 0.0)
+            final_model = "ResNet_Transfer_Learning"
+        
+        # Map status to prediction_class (normal/abnormal)
+        if final_class in ["normal"]:
+            prediction_class = "normal"
+        else:
+            prediction_class = "abnormal"
+        
+        # Create prediction record
         audio_prediction = AudioPrediction(
             tractor_id=tractor_id.upper(),
             # File info
@@ -126,38 +210,91 @@ async def upload_audio(
             file_size_bytes=file_size,
             duration_seconds=duration,
             # Prediction
-            prediction_class=prediction_class,  # "normal" or "abnormal"
-            confidence=confidence,
-            model_used=model_used,
+            prediction_class=prediction_class,
+            confidence=final_confidence,
+            model_used=final_model,
             # Analysis metadata
             processing_time_ms=processing_time,
             sample_rate=sample_rate,
-            # Timestamps (auto-generated by default_factory)
+            # Timestamps
             recorded_at=datetime.utcnow(),
             processed_at=datetime.utcnow()
         )
         
         await audio_prediction.insert()
+        prediction_id = str(audio_prediction.id)
+        
+        # ===== NEW: Save trend data if baseline exists =====
+        if has_baseline and deviation_info and combined_analysis:
+            try:
+                trend = AudioTrend(
+                    tractor_id=tractor_id.upper(),
+                    recorded_at=datetime.utcnow(),
+                    tractor_hours=current_hours,
+                    resnet_score=float(prediction_result["anomaly_score"]),
+                    deviation_score=float(deviation_info["average_deviation"]),
+                    combined_score=float(combined_analysis["combined_score"]),
+                    status=combined_analysis["status"],
+                    anomaly_type=prediction_result.get("anomaly_type"),
+                    baseline_id=str(baseline.id),
+                    prediction_id=prediction_id,
+                    deviation_percentage=float(deviation_info["percentage_anomalous"]),
+                    max_deviation=float(deviation_info["max_deviation"])
+                )
+                await trend.insert()
+                logger.info(f"📈 Trend data saved")
+            except Exception as e:
+                logger.error(f"⚠️  Could not save trend data: {e}")
         
         # Log result
-        if anomaly_type:
-            logger.info(f"✅ Prediction saved: {prediction_class} ({anomaly_type}, confidence: {confidence:.2%}, {processing_time:.0f}ms)")
+        if has_baseline and deviation_info:
+            logger.info(
+                f"✅ Prediction saved: {prediction_class} "
+                f"(combined: {final_confidence:.2%}, "
+                f"deviation: {deviation_info['average_deviation']:.2f}σ, "
+                f"{processing_time:.0f}ms)"
+            )
         else:
-            logger.info(f"✅ Prediction saved: {prediction_class} (confidence: {confidence:.2%}, {processing_time:.0f}ms)")
+            logger.info(
+                f"✅ Prediction saved: {prediction_class} "
+                f"(ResNet only: {final_confidence:.2%}, {processing_time:.0f}ms)"
+            )
         
-        # Return response
-        return AudioPredictionResponse(
-            id=str(audio_prediction.id),
-            tractor_id=audio_prediction.tractor_id,
-            prediction_class=audio_prediction.prediction_class,
-            confidence=audio_prediction.confidence,
-            anomaly_score=anomaly_score,
-            audio_file_path=audio_prediction.file_path,
-            recorded_at=audio_prediction.recorded_at,
-            filename=audio_prediction.filename,
-            model_used=audio_prediction.model_used,
-            duration_seconds=audio_prediction.duration_seconds
-        )
+        # Build response
+        response_data = {
+            "id": prediction_id,
+            "tractor_id": audio_prediction.tractor_id,
+            "prediction_class": audio_prediction.prediction_class,
+            "confidence": audio_prediction.confidence,
+            "anomaly_score": final_anomaly_score,
+            "file_path": audio_prediction.file_path,  # ← Changed from audio_file_path
+            "recorded_at": audio_prediction.recorded_at,
+            "filename": audio_prediction.filename,
+            "model_used": audio_prediction.model_used,
+            "duration_seconds": audio_prediction.duration_seconds
+        }
+        
+        # Add baseline comparison info if available
+        if has_baseline and deviation_info and combined_analysis:
+            response_data["baseline_comparison"] = {
+                "has_baseline": True,
+                "baseline_id": str(baseline.id),
+                "baseline_hours": baseline.tractor_hours,
+                "current_hours": current_hours,
+                "hours_since_baseline": current_hours - baseline.tractor_hours,
+                "deviation_score": deviation_info["average_deviation"],
+                "deviation_interpretation": f"{deviation_info['average_deviation']:.1f}σ from baseline",
+                "percentage_anomalous": deviation_info["percentage_anomalous"],
+                "combined_status": combined_analysis["status"],
+                "recommendation": combined_analysis["recommendation"]
+            }
+        else:
+            response_data["baseline_comparison"] = {
+                "has_baseline": False,
+                "message": "Create baseline to enable personalized analysis"
+            }
+        
+        return AudioPredictionResponse(**response_data)
         
     except HTTPException:
         raise
@@ -169,196 +306,153 @@ async def upload_audio(
         )
 
 
-@router.get("/predictions/{tractor_id}")
+@router.get("/{tractor_id}/predictions", response_model=AudioPredictionListResponse)
 async def get_predictions(
     tractor_id: str,
-    limit: int = Query(50, ge=1, le=100, description="Number of predictions to return"),
+    limit: int = Query(50, ge=1, le=100),
+    skip: int = Query(0, ge=0),
     current_user: User = Depends(get_current_user)
 ):
-    """Get audio prediction history for a tractor"""
-    
-    # Verify tractor
-    tractor = await Tractor.find_one({
-        "tractor_id": tractor_id.upper(),
-        "owner_id": str(current_user.id)
-    })
-    
-    if not tractor:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Tractor {tractor_id} not found"
-        )
-    
-    # Get predictions
-    predictions = await AudioPrediction.find(
-        {"tractor_id": tractor_id.upper()}
-    ).sort("-recorded_at").limit(limit).to_list()
-    
-    # Return with safe field access
-    return [
-        AudioPredictionResponse(
-            id=str(p.id),
-            tractor_id=p.tractor_id,
-            prediction_class=p.prediction_class,
-            confidence=p.confidence,
-            anomaly_score=(1.0 - p.confidence) if p.prediction_class == "normal" else p.confidence,
-            audio_file_path=p.file_path,
-            recorded_at=p.recorded_at,
-            filename=getattr(p, 'filename', 'unknown'),
-            model_used=getattr(p, 'model_used', 'ResNet_Transfer_Learning'),
-            duration_seconds=getattr(p, 'duration_seconds', 10.0)
-        )
-        for p in predictions
-    ]
-
-
-@router.get("/model/info")
-async def get_model_info(current_user: User = Depends(get_current_user)):
-    """Get information about the ResNet CNN Transfer Learning model"""
-    
-    model_info = ml_service.get_model_info()
-    
-    return {
-        "model_name": "ResNet CNN Transfer Learning",
-        "description": "Deep learning model trained on MIMII industrial sounds + tractor audio",
-        "architecture": "ResNet with Focal Loss for class imbalance",
-        "status": "loaded" if model_info.get("model_loaded") else "not_loaded",
-        "supported_formats": list(SUPPORTED_FORMATS),
-        "features": model_info.get("features", {}),
-        "preprocessing": model_info.get("preprocessing", {}),
-        "classes": ["normal", "abnormal"],
-        "anomaly_classification": {
-            "normal": "Probability 0.0-0.5",
-            "minor_anomaly": "Probability 0.5-0.6",
-            "unusual_noise": "Probability 0.6-0.75",
-            "high_vibration": "Probability 0.75-0.9",
-            "critical_anomaly": "Probability >0.9"
-        },
-        "source": "Google Drive",
-        "cache_location": "temp_models/tractor_resnet_final.keras",
-        **model_info
-    }
-
-
-@router.get("/statistics/{tractor_id}")
-async def get_prediction_statistics(
-    tractor_id: str,
-    current_user: User = Depends(get_current_user)
-):
-    """Get prediction statistics for a tractor"""
-    
-    # Verify tractor
-    tractor = await Tractor.find_one({
-        "tractor_id": tractor_id.upper(),
-        "owner_id": str(current_user.id)
-    })
-    
-    if not tractor:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Tractor {tractor_id} not found"
-        )
-    
-    # Get all predictions
-    predictions = await AudioPrediction.find(
-        {"tractor_id": tractor_id.upper()}
-    ).to_list()
-    
-    if not predictions:
-        return {
-            "tractor_id": tractor_id.upper(),
-            "total_predictions": 0,
-            "normal_count": 0,
-            "abnormal_count": 0,
-            "average_confidence": 0.0,
-            "message": "No predictions found for this tractor"
-        }
-    
-    # Calculate statistics
-    total = len(predictions)
-    normal_count = sum(1 for p in predictions if p.prediction_class == "normal")
-    abnormal_count = total - normal_count
-    avg_confidence = sum(p.confidence for p in predictions) / total
-    
-    # Get recent trend (last 10 predictions)
-    recent = predictions[-10:] if len(predictions) > 10 else predictions
-    recent_abnormal = sum(1 for p in recent if p.prediction_class == "abnormal")
-    
-    # Calculate average processing time
-    processing_times = [getattr(p, 'processing_time_ms', 0) for p in predictions if hasattr(p, 'processing_time_ms')]
-    avg_processing_time = sum(processing_times) / len(processing_times) if processing_times else 0
-    
-    return {
-        "tractor_id": tractor_id.upper(),
-        "total_predictions": total,
-        "normal_count": normal_count,
-        "abnormal_count": abnormal_count,
-        "normal_percentage": round((normal_count / total) * 100, 2),
-        "abnormal_percentage": round((abnormal_count / total) * 100, 2),
-        "average_confidence": round(avg_confidence, 4),
-        "average_processing_time_ms": round(avg_processing_time, 2),
-        "model": "ResNet CNN Transfer Learning",
-        "recent_trend": {
-            "last_predictions_count": len(recent),
-            "abnormal_in_recent": recent_abnormal,
-            "health_status": "Critical" if recent_abnormal >= 7 else "Warning" if recent_abnormal >= 4 else "Good"
-        },
-        "latest_prediction": {
-            "class": predictions[-1].prediction_class,
-            "confidence": round(predictions[-1].confidence, 4),
-            "model_used": getattr(predictions[-1], 'model_used', 'ResNet_Transfer_Learning'),
-            "recorded_at": predictions[-1].recorded_at
-        } if predictions else None
-    }
-
-
-@router.get("/formats")
-async def get_supported_formats():
-    """Get list of supported audio formats"""
-    return {
-        "supported_formats": sorted(list(SUPPORTED_FORMATS)),
-        "recommended": [".wav", ".flac"],
-        "notes": {
-            ".wav": "Uncompressed audio - Best quality, larger files",
-            ".flac": "Lossless compression - Good quality, smaller than WAV",
-            ".mp3": "Lossy compression - Good quality, small files",
-            ".ogg": "Open format - Good quality, small files"
-        },
-        "not_supported": [".m4a", ".aac", ".wma"],
-        "tip": "For best results, use .wav or .flac format"
-    }
-
-
-@router.post("/test/upload")
-async def test_audio_upload(
-    file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Test endpoint to verify audio file upload works correctly
-    Returns file information without performing prediction
-    """
+    """Get all audio predictions for a tractor"""
     try:
-        # Check format
-        file_ext = os.path.splitext(file.filename)[1].lower()
-        is_supported = file_ext in SUPPORTED_FORMATS
+        tractor = await Tractor.find_one({
+            "tractor_id": tractor_id.upper(),
+            "owner_id": str(current_user.id)
+        })
         
-        file_size = 0
-        chunk_size = 1024 * 1024  # 1MB chunks
+        if not tractor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Tractor {tractor_id} not found"
+            )
         
-        while chunk := await file.read(chunk_size):
-            file_size += len(chunk)
+        predictions = await AudioPrediction.find({
+            "tractor_id": tractor_id.upper()
+        }).sort("-recorded_at").skip(skip).limit(limit).to_list()
         
-        return {
-            "success": True,
-            "filename": file.filename,
-            "format": file_ext,
-            "is_supported": is_supported,
-            "content_type": file.content_type,
-            "size_bytes": file_size,
-            "size_mb": round(file_size / (1024 * 1024), 2),
-            "message": f"File uploaded successfully. Format {file_ext} is {'supported' if is_supported else 'NOT supported'}."
-        }
+        total = await AudioPrediction.find({
+            "tractor_id": tractor_id.upper()
+        }).count()
         
+        # Convert predictions to proper format
+        prediction_responses = []
+        for pred in predictions:
+            prediction_responses.append(AudioPredictionResponse(
+                id=str(pred.id),  # ← Convert ObjectId to string
+                tractor_id=pred.tractor_id,
+                filename=pred.filename,
+                prediction_class=pred.prediction_class,
+                confidence=pred.confidence,
+                anomaly_score=pred.anomaly_score,
+                file_path=pred.file_path,  # ← Use file_path not audio_file_path
+                recorded_at=pred.recorded_at,
+                model_used=pred.model_used,
+                duration_seconds=pred.duration_seconds,
+                baseline_comparison=None  # Add if available
+            ))
+        
+        return AudioPredictionListResponse(
+            predictions=prediction_responses,
+            total=total,
+            skip=skip,
+            limit=limit
+        )
+        
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Error getting predictions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{tractor_id}/predictions/{prediction_id}", response_model=AudioPredictionResponse)
+async def get_prediction(
+    tractor_id: str,
+    prediction_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Get a specific prediction by ID"""
+    try:
+        tractor = await Tractor.find_one({
+            "tractor_id": tractor_id.upper(),
+            "owner_id": str(current_user.id)
+        })
+        
+        if not tractor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Tractor {tractor_id} not found"
+            )
+        
+        prediction = await AudioPrediction.get(prediction_id)
+        
+        if not prediction or prediction.tractor_id != tractor_id.upper():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Prediction not found"
+            )
+        
+        # Return with proper format
+        return AudioPredictionResponse(
+            id=str(prediction.id),  # ← Convert ObjectId to string
+            tractor_id=prediction.tractor_id,
+            filename=prediction.filename,
+            prediction_class=prediction.prediction_class,
+            confidence=prediction.confidence,
+            anomaly_score=prediction.anomaly_score,
+            file_path=prediction.file_path,  # ← Use file_path not audio_file_path
+            recorded_at=prediction.recorded_at,
+            model_used=prediction.model_used,
+            duration_seconds=prediction.duration_seconds,
+            baseline_comparison=None  # Add if available
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting prediction: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/{tractor_id}/predictions/{prediction_id}")
+async def delete_prediction(
+    tractor_id: str,
+    prediction_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Delete a prediction"""
+    try:
+        # Verify tractor ownership
+        tractor = await Tractor.find_one({
+            "tractor_id": tractor_id.upper(),
+            "owner_id": str(current_user.id)
+        })
+        
+        if not tractor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Tractor {tractor_id} not found"
+            )
+        
+        # Get and delete prediction
+        prediction = await AudioPrediction.get(prediction_id)
+        
+        if not prediction or prediction.tractor_id != tractor_id.upper():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Prediction not found"
+            )
+        
+        # Delete audio file if exists
+        if prediction.file_path and os.path.exists(prediction.file_path):
+            os.remove(prediction.file_path)
+        
+        await prediction.delete()
+        
+        return {"message": "Prediction deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting prediction: {e}")
         raise HTTPException(status_code=500, detail=str(e))

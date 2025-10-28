@@ -237,3 +237,7 @@ class MLService:
             "source": "Google Drive",
             "file_id": self.RESNET_DRIVE_ID
         }
+
+
+# Create a global instance
+ml_service = MLService()
