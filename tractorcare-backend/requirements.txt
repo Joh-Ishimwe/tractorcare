@@ -42,5 +42,6 @@ soxr==0.5.0.post1
 # Utilities & Security
 # -------------------------------
 python-dotenv==1.0.1
-bcrypt==4.1.2
+bcrypt==3.2.2
 cryptography==43.0.1
+
