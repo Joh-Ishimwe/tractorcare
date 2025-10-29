@@ -9,7 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-
+  
   # UI & Styling
   cupertino_icons: ^1.0.6
   google_fonts: ^6.1.0
@@ -23,6 +23,9 @@ dependencies:
   # Storage
   shared_preferences: ^2.2.2
   path_provider: ^2.1.1
+  
+  # File Operations
+  file_picker: ^8.0.0
   
   # Audio Recording
   record: ^6.1.2

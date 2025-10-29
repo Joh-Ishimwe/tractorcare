@@ -1,112 +1,128 @@
 // lib/services/auth_service.dart
 
-import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user.dart';
 import 'api_service.dart';
+import 'storage_service.dart';
 
-class AuthService extends ChangeNotifier {
-  final ApiService _apiService = ApiService();
-  
+class AuthService {
+  final ApiService _api = ApiService();
+  final StorageService _storage = StorageService();
+
   User? _currentUser;
-  String? _token;
-  bool _isAuthenticated = false;
-  bool _isLoading = false;
 
   User? get currentUser => _currentUser;
-  String? get token => _token;
-  bool get isAuthenticated => _isAuthenticated;
-  bool get isLoading => _isLoading;
+  bool get isAuthenticated => _currentUser != null;
 
-  // Initialize from storage
-  Future<void> initialize() async {
-    _isLoading = true;
-    notifyListeners();
-
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      _token = prefs.getString('auth_token');
-
-      if (_token != null) {
-        try {
-          _currentUser = await _apiService.getCurrentUser(_token!);
-          _isAuthenticated = true;
-        } catch (e) {
-          await logout();
-        }
-      }
-    } catch (e) {
-      // print('Error initializing auth: $e');
-    } finally {
-      _isLoading = false;
-      notifyListeners();
-    }
+  // Initialize auth service
+  Future<void> init() async {
+    await _loadToken();
   }
 
-  // Register
-  Future<void> register(User user, String password) async {
-    _isLoading = true;
-    notifyListeners();
-
-    try {
-      // Backend returns the created user (no token). Perform a follow-up login.
-      await _apiService.register(user, password);
-
-      // Immediately login to fetch token and profile
-      await login(user.email, password);
-    } finally {
-      _isLoading = false;
-      notifyListeners();
-    }
-  }
-
-  // Login
-  Future<void> login(String email, String password) async {
-    _isLoading = true;
-    notifyListeners();
-
-    try {
-      final response = await _apiService.login(email, password);
-      _token = response['access_token'];
-
-      // Mark authenticated and save token early so subsequent profile calls use it.
-      _isAuthenticated = true;
-      await _saveAuthState();
-
-      // Try to load current user profile but don't fail the login if profile fetch fails
+  // Load saved token
+  Future<void> _loadToken() async {
+    final token = await _storage.getToken();
+    if (token != null) {
+      _api.setToken(token);
       try {
-        _currentUser = await _apiService.getCurrentUser(_token!);
+        await loadCurrentUser();
       } catch (e) {
-        // Profile fetch failed (e.g., backend returns placeholder). Continue without blocking login.
+        // Token might be expired
+        await logout();
       }
-    } finally {
-      _isLoading = false;
-      notifyListeners();
     }
   }
 
-  // Logout
+  // Register new user
+  Future<User> register({
+    required String email,
+    required String password,
+    required String firstName,
+    required String lastName,
+    String? phoneNumber,
+  }) async {
+    final userData = {
+      'email': email,
+      'password': password,
+      'first_name': firstName,
+      'last_name': lastName,
+      if (phoneNumber != null) 'phone_number': phoneNumber,
+    };
+
+    final response = await _api.register(userData);
+    
+    // Auto-login after registration
+    return await login(email, password);
+  }
+
+  // Login user
+  Future<User> login(String email, String password) async {
+    final response = await _api.login(email, password);
+    
+    final token = response['access_token'];
+    if (token == null) {
+      throw Exception('No token received');
+    }
+
+    // Save token
+    await _storage.saveToken(token);
+    _api.setToken(token);
+
+    // Load user data
+    await loadCurrentUser();
+
+    if (_currentUser == null) {
+      throw Exception('Failed to load user data');
+    }
+
+    return _currentUser!;
+  }
+
+  // Load current user data
+  Future<User> loadCurrentUser() async {
+    final userData = await _api.getCurrentUser();
+    _currentUser = User.fromJson(userData);
+    
+    // Save user data locally
+    await _storage.saveUser(_currentUser!);
+    
+    return _currentUser!;
+  }
+
+  // Logout user
   Future<void> logout() async {
-    _token = null;
     _currentUser = null;
-    _isAuthenticated = false;
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('auth_token');
-    await prefs.remove('current_user');
-
-    notifyListeners();
+    _api.clearToken();
+    await _storage.clearAll();
   }
 
-  // Save auth state
-  Future<void> _saveAuthState() async {
+  // Check if user is logged in
+  Future<bool> checkAuth() async {
+    final token = await _storage.getToken();
+    if (token == null) return false;
+
+    _api.setToken(token);
+    
     try {
-      final prefs = await SharedPreferences.getInstance();
-      if (_token != null) {
-        await prefs.setString('auth_token', _token!);
-      }
+      await loadCurrentUser();
+      return true;
     } catch (e) {
-      // print('Error saving auth state: $e');
+      await logout();
+      return false;
     }
+  }
+
+  // Update user profile
+  Future<User> updateProfile(Map<String, dynamic> userData) async {
+    // TODO: Implement update profile API endpoint
+    throw UnimplementedError('Update profile not implemented yet');
+  }
+
+  // Change password
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    // TODO: Implement change password API endpoint
+    throw UnimplementedError('Change password not implemented yet');
   }
 }

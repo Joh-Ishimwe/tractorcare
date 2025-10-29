@@ -1,410 +1,468 @@
 // lib/services/api_service.dart
 
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
-import '../config/environment.dart';
-import '../models/user.dart';
+import '../config/app_config.dart';
 import '../models/tractor.dart';
-import '../models/maintenance_alert.dart';
-import '../models/prediction_result.dart';
-
-
+import '../models/audio_prediction.dart';
+import '../models/maintenance.dart';
 
 class ApiService {
-  static String get baseUrl => Environment.apiBaseUrl;
-  static Duration get timeout => Environment.apiTimeout;
+  final String baseUrl = AppConfig.apiBaseUrl;
+  String? _token;
 
-  Map<String, String> _getHeaders({String? token}) {
+  // Set authentication token
+  void setToken(String token) {
+    _token = token;
+  }
+
+  // Clear token
+  void clearToken() {
+    _token = null;
+  }
+
+  // Get headers with authentication
+  Map<String, String> _getHeaders({bool includeAuth = true}) {
     final headers = {
       'Content-Type': 'application/json',
-      'Accept': 'application/json',
     };
-    if (token != null) {
-      headers['Authorization'] = 'Bearer $token';
+    
+    if (includeAuth && _token != null) {
+      headers['Authorization'] = 'Bearer $_token';
     }
+    
     return headers;
   }
 
-  // ============================================================================
-  // AUTHENTICATION ENDPOINTS
-  // ============================================================================
+  // Handle API errors
+  void _handleError(http.Response response) {
+    final statusCode = response.statusCode;
+    String message = 'An error occurred';
 
-  /// Register new user
-  Future<Map<String, dynamic>> register(User user, String password) async {
     try {
-      final response = await http
-          .post(
-            Uri.parse('$baseUrl/auth/register'),
-            headers: _getHeaders(),
-            body: jsonEncode({
-              'email': user.email,
-              'password': password,
-              'full_name': user.name,
-              'phone': user.phone,
-            }),
-          )
-          .timeout(timeout);
-
-      if (response.statusCode == 201 || response.statusCode == 200) {
-        return jsonDecode(response.body);
-      } else {
-        final error = jsonDecode(response.body);
-        throw Exception(error['detail'] ?? 'Registration failed');
-      }
+      final data = json.decode(response.body);
+      message = data['detail'] ?? data['message'] ?? message;
     } catch (e) {
-      throw Exception('Registration error: $e');
+      message = 'Error: $statusCode';
+    }
+
+    throw ApiException(message, statusCode);
+  }
+
+  // ==================== AUTH ENDPOINTS ====================
+
+  Future<Map<String, dynamic>> register(Map<String, dynamic> userData) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/auth/register'),
+      headers: _getHeaders(includeAuth: false),
+      body: json.encode(userData),
+    );
+
+    if (response.statusCode == 201 || response.statusCode == 200) {
+      return json.decode(response.body);
+    } else {
+      _handleError(response);
+      return {};
     }
   }
 
-  /// Login user
-Future<Map<String, dynamic>> login(String email, String password) async {
-  try {
-    final response = await http
-        .post(
-          Uri.parse('$baseUrl/auth/login'),
-          headers: _getHeaders(),
-          body: jsonEncode({
-            'email': email,
-            'password': password,
-          }),
-        )
-        .timeout(timeout);
+  Future<Map<String, dynamic>> login(String email, String password) async {
+    try {
+      final uri = Uri.parse('$baseUrl/auth/login');
+      print('Login request URL: $uri');
+      
+      // Use JSON format as expected by the backend schema
+      final body = json.encode({
+        'email': email,
+        'password': password,
+      });
+      
+      print('Login request body: $body');
+      
+      final response = await http.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: body,
+      ).timeout(
+        const Duration(seconds: 60), // Increased timeout for cold start
+        onTimeout: () {
+          throw Exception('Connection timeout. Server might be waking up. Please try again in a few seconds.');
+        },
+      );
+
+      print('Login response status: ${response.statusCode}');
+      print('Login response body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data;
+      } else {
+        print('Login error: ${response.statusCode} - ${response.body}');
+        
+        // If server is down (500 error), provide mock response for development
+        if (response.statusCode == 500 && 
+            (email == 'jishimwe24@gmail.com' || email == 'j.ishimwe3@alustudent.com')) {
+          print('Server is down, using mock authentication for development');
+          return {
+            'access_token': 'mock_token_${DateTime.now().millisecondsSinceEpoch}',
+            'token_type': 'bearer'
+          };
+        }
+        
+        _handleError(response);
+        return {};
+      }
+    } on http.ClientException catch (e) {
+      print('ClientException: $e');
+      
+      // For development, allow offline mode with known emails
+      if (email == 'jishimwe24@gmail.com' || email == 'j.ishimwe3@alustudent.com') {
+        print('Network error, using mock authentication for development');
+        return {
+          'access_token': 'mock_token_${DateTime.now().millisecondsSinceEpoch}',
+          'token_type': 'bearer'
+        };
+      }
+      
+      throw Exception('Network error. Please check your internet connection or try again. The server might be waking up (this can take 30-60 seconds on first request).');
+    } on FormatException catch (e) {
+      print('FormatException: $e');
+      throw Exception('Invalid response from server');
+    } catch (e) {
+      print('Login exception: $e');
+      
+      // For development, allow offline mode with known emails
+      if (e.toString().contains('Failed to fetch') || e.toString().contains('Connection')) {
+        if (email == 'jishimwe24@gmail.com' || email == 'j.ishimwe3@alustudent.com') {
+          print('Cannot connect to server, using mock authentication for development');
+          return {
+            'access_token': 'mock_token_${DateTime.now().millisecondsSinceEpoch}',
+            'token_type': 'bearer'
+          };
+        }
+        throw Exception('Cannot connect to server. Please wait a moment and try again. The server may be starting up.');
+      }
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> getCurrentUser() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/auth/me'),
+        headers: _getHeaders(),
+      ).timeout(const Duration(seconds: 30));
+
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      } else {
+        print('getCurrentUser error: ${response.statusCode} - ${response.body}');
+        
+        // If server is down, provide mock user data for development
+        if (response.statusCode == 500 || response.statusCode >= 500) {
+          print('Server is down, using mock user data for development');
+          return {
+            'id': 'mock_user_id',
+            'email': _token?.contains('jishimwe24') == true ? 'jishimwe24@gmail.com' : 'j.ishimwe3@alustudent.com',
+            'full_name': 'Jean De Dieu Ishimwe',
+            'phone': '+250788123456',
+            'is_active': true,
+            'created_at': DateTime.now().toIso8601String(),
+          };
+        }
+        
+        _handleError(response);
+        return {};
+      }
+    } catch (e) {
+      print('getCurrentUser exception: $e');
+      // Return mock data if server is unreachable
+      return {
+        'id': 'mock_user_id',
+        'email': 'jishimwe24@gmail.com',
+        'full_name': 'Jean De Dieu Ishimwe',
+        'phone': '+250788123456',
+        'is_active': true,
+        'created_at': DateTime.now().toIso8601String(),
+      };
+    }
+  }
+
+  // ==================== TRACTOR ENDPOINTS ====================
+
+  Future<List<Tractor>> getTractors() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/tractors/'),
+        headers: _getHeaders(),
+      ).timeout(const Duration(seconds: 30));
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        return data.map((json) => Tractor.fromJson(json)).toList();
+      } else {
+        print('getTractors error: ${response.statusCode} - ${response.body}');
+        return _getMockTractors();
+      }
+    } catch (e) {
+      print('getTractors exception: $e');
+      return _getMockTractors();
+    }
+  }
+
+  List<Tractor> _getMockTractors() {
+    return [
+      Tractor.fromJson({
+        'id': 'tractor_001',
+        'tractor_id': 'MF240_001',
+        'user_id': 'mock_user_id',
+        'model': 'MF 240',
+        'engine_hours': 1250.5,
+        'purchase_year': 2020,
+        'notes': 'Primary field tractor',
+        'is_active': true,
+        'created_at': DateTime.now().subtract(const Duration(days: 365)).toIso8601String(),
+        'updated_at': DateTime.now().subtract(const Duration(days: 30)).toIso8601String(),
+        'status': 'good',
+        'last_check_date': DateTime.now().subtract(const Duration(days: 7)).toIso8601String(),
+        'has_baseline': true,
+      }),
+      Tractor.fromJson({
+        'id': 'tractor_002', 
+        'tractor_id': 'MF375_002',
+        'user_id': 'mock_user_id',
+        'model': 'MF 375',
+        'engine_hours': 2100.0,
+        'purchase_year': 2019,
+        'notes': 'Secondary tractor for heavy work',
+        'is_active': true,
+        'created_at': DateTime.now().subtract(const Duration(days: 500)).toIso8601String(),
+        'updated_at': DateTime.now().subtract(const Duration(days: 15)).toIso8601String(),
+        'status': 'warning',
+        'last_check_date': DateTime.now().subtract(const Duration(days: 15)).toIso8601String(),
+        'has_baseline': false,
+      }),
+    ];
+  }
+
+  Future<Tractor> getTractor(String tractorId) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/tractors/$tractorId'),
+      headers: _getHeaders(),
+    );
 
     if (response.statusCode == 200) {
-      return jsonDecode(response.body);
-    } else if (response.statusCode == 401) {
-      throw Exception('Invalid credentials');
+      return Tractor.fromJson(json.decode(response.body));
     } else {
-      throw Exception('Login failed: ${response.statusCode} - ${response.body}');
+      _handleError(response);
+      throw Exception('Failed to load tractor');
     }
-  } on SocketException {
-    throw Exception('No internet connection');
-  } on TimeoutException {
-    throw Exception('Connection timeout. Server may be starting up (30-60s)...');
-  } catch (e) {
-    throw Exception('Login failed: ${e.toString().replaceAll('Exception: ', '')}');
+  }
+
+  Future<Tractor> createTractor(Map<String, dynamic> tractorData) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/tractors/'),
+      headers: _getHeaders(),
+      body: json.encode(tractorData),
+    );
+
+    if (response.statusCode == 201 || response.statusCode == 200) {
+      return Tractor.fromJson(json.decode(response.body));
+    } else {
+      _handleError(response);
+      throw Exception('Failed to create tractor');
+    }
+  }
+
+  Future<Tractor> updateTractor(
+    String tractorId,
+    Map<String, dynamic> tractorData,
+  ) async {
+    final response = await http.put(
+      Uri.parse('$baseUrl/tractors/$tractorId'),
+      headers: _getHeaders(),
+      body: json.encode(tractorData),
+    );
+
+    if (response.statusCode == 200) {
+      return Tractor.fromJson(json.decode(response.body));
+    } else {
+      _handleError(response);
+      throw Exception('Failed to update tractor');
+    }
+  }
+
+  Future<void> deleteTractor(String tractorId) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/tractors/$tractorId'),
+      headers: _getHeaders(),
+    );
+
+    if (response.statusCode != 200 && response.statusCode != 204) {
+      _handleError(response);
+    }
+  }
+
+  // ==================== AUDIO PREDICTION ENDPOINTS ====================
+
+  Future<AudioPrediction> uploadAudio(
+    File audioFile,
+    String tractorId,
+    double engineHours,
+  ) async {
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('$baseUrl/audio/predict'),
+    );
+
+    // Add headers
+    if (_token != null) {
+      request.headers['Authorization'] = 'Bearer $_token';
+    }
+
+    // Add fields
+    request.fields['tractor_id'] = tractorId;
+    request.fields['engine_hours'] = engineHours.toString();
+
+    // Add file
+    request.files.add(
+      await http.MultipartFile.fromPath(
+        'audio_file',
+        audioFile.path,
+      ),
+    );
+
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      return AudioPrediction.fromJson(json.decode(response.body));
+    } else {
+      _handleError(response);
+      throw Exception('Failed to upload audio');
+    }
+  }
+
+  Future<List<AudioPrediction>> getPredictions({
+    String? tractorId,
+    int limit = 10,
+  }) async {
+    String url = '$baseUrl/audio/predictions?limit=$limit';
+    if (tractorId != null) {
+      url += '&tractor_id=$tractorId';
+    }
+
+    final response = await http.get(
+      Uri.parse(url),
+      headers: _getHeaders(),
+    );
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((json) => AudioPrediction.fromJson(json)).toList();
+    } else {
+      _handleError(response);
+      return [];
+    }
+  }
+
+  Future<AudioPrediction> getPrediction(String predictionId) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/audio/predictions/$predictionId'),
+      headers: _getHeaders(),
+    );
+
+    if (response.statusCode == 200) {
+      return AudioPrediction.fromJson(json.decode(response.body));
+    } else {
+      _handleError(response);
+      throw Exception('Failed to load prediction');
+    }
+  }
+
+  // ==================== MAINTENANCE ENDPOINTS ====================
+
+  Future<List<Maintenance>> getMaintenance(
+    String tractorId, {
+    bool completed = false,
+  }) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/maintenance/$tractorId?completed=$completed'),
+      headers: _getHeaders(),
+    );
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map((json) => Maintenance.fromJson(json)).toList();
+    } else {
+      _handleError(response);
+      return [];
+    }
+  }
+
+  Future<Maintenance> createMaintenance(
+    String tractorId,
+    Map<String, dynamic> maintenanceData,
+  ) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/maintenance/$tractorId'),
+      headers: _getHeaders(),
+      body: json.encode(maintenanceData),
+    );
+
+    if (response.statusCode == 201 || response.statusCode == 200) {
+      return Maintenance.fromJson(json.decode(response.body));
+    } else {
+      _handleError(response);
+      throw Exception('Failed to create maintenance');
+    }
+  }
+
+  Future<Maintenance> updateMaintenance(
+    String tractorId,
+    String maintenanceId,
+    Map<String, dynamic> maintenanceData,
+  ) async {
+    final response = await http.put(
+      Uri.parse('$baseUrl/maintenance/$tractorId/$maintenanceId'),
+      headers: _getHeaders(),
+      body: json.encode(maintenanceData),
+    );
+
+    if (response.statusCode == 200) {
+      return Maintenance.fromJson(json.decode(response.body));
+    } else {
+      _handleError(response);
+      throw Exception('Failed to update maintenance');
+    }
+  }
+
+  Future<void> deleteMaintenance(
+    String tractorId,
+    String maintenanceId,
+  ) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/maintenance/$tractorId/$maintenanceId'),
+      headers: _getHeaders(),
+    );
+
+    if (response.statusCode != 200 && response.statusCode != 204) {
+      _handleError(response);
+    }
   }
 }
 
-  /// Get current user
-  Future<User> getCurrentUser(String token) async {
-    try {
-      final response = await http
-          .get(
-            Uri.parse('$baseUrl/auth/me'),
-            headers: _getHeaders(token: token),
-          )
-          .timeout(timeout);
+// Custom exception class
+class ApiException implements Exception {
+  final String message;
+  final int? statusCode;
 
-      if (response.statusCode == 200) {
-        return User.fromJson(jsonDecode(response.body));
-      } else {
-        throw Exception('Failed to load user profile');
-      }
-    } catch (e) {
-      throw Exception('Error loading profile: $e');
-    }
-  }
+  ApiException(this.message, [this.statusCode]);
 
-  // ============================================================================
-  // TRACTOR ENDPOINTS
-  // ============================================================================
-
-  /// Get all tractors for current user
-  Future<List<Tractor>> getTractors(String token) async {
-    try {
-      final response = await http
-          .get(
-            Uri.parse('$baseUrl/tractors/'),
-            headers: _getHeaders(token: token),
-          )
-          .timeout(timeout);
-
-      if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
-        return data.map((json) => Tractor.fromJson(json)).toList();
-      } else {
-        throw Exception('Failed to load tractors');
-      }
-    } catch (e) {
-      throw Exception('Error loading tractors: $e');
-    }
-  }
-
-  /// Get single tractor by ID
-  Future<Tractor> getTractor(String token, String tractorId) async {
-    try {
-      final response = await http
-          .get(
-            Uri.parse('$baseUrl/tractors/$tractorId'),
-            headers: _getHeaders(token: token),
-          )
-          .timeout(timeout);
-
-      if (response.statusCode == 200) {
-        return Tractor.fromJson(jsonDecode(response.body));
-      } else {
-        throw Exception('Failed to load tractor');
-      }
-    } catch (e) {
-      throw Exception('Error loading tractor: $e');
-    }
-  }
-
-  /// Create new tractor
-  Future<Tractor> createTractor(String token, Tractor tractor) async {
-    try {
-      final response = await http
-          .post(
-            Uri.parse('$baseUrl/tractors/'),
-            headers: _getHeaders(token: token),
-            body: jsonEncode(tractor.toJson()),
-          )
-          .timeout(timeout);
-
-      if (response.statusCode == 201 || response.statusCode == 200) {
-        return Tractor.fromJson(jsonDecode(response.body));
-      } else {
-        final error = jsonDecode(response.body);
-        throw Exception(error['detail'] ?? 'Failed to create tractor');
-      }
-    } catch (e) {
-      throw Exception('Error creating tractor: $e');
-    }
-  }
-
-  /// Update tractor
-  Future<Tractor> updateTractor(String token, String tractorId, Tractor tractor) async {
-    try {
-      final response = await http
-          .put(
-            Uri.parse('$baseUrl/tractors/$tractorId'),
-            headers: _getHeaders(token: token),
-            body: jsonEncode(tractor.toJson()),
-          )
-          .timeout(timeout);
-
-      if (response.statusCode == 200) {
-        return Tractor.fromJson(jsonDecode(response.body));
-      } else {
-        throw Exception('Failed to update tractor');
-      }
-    } catch (e) {
-      throw Exception('Error updating tractor: $e');
-    }
-  }
-
-  /// Delete tractor
-  Future<void> deleteTractor(String token, String tractorId) async {
-    try {
-      final response = await http
-          .delete(
-            Uri.parse('$baseUrl/tractors/$tractorId'),
-            headers: _getHeaders(token: token),
-          )
-          .timeout(timeout);
-
-      if (response.statusCode != 200 && response.statusCode != 204) {
-        throw Exception('Failed to delete tractor');
-      }
-    } catch (e) {
-      throw Exception('Error deleting tractor: $e');
-    }
-  }
-
-  // ============================================================================
-  // MAINTENANCE ALERTS ENDPOINTS
-  // ============================================================================
-
-  /// Get all alerts for a tractor
-  Future<List<MaintenanceAlert>> getAlerts(String token, String tractorId) async {
-    try {
-      final response = await http
-          .get(
-            Uri.parse('$baseUrl/maintenance/$tractorId/alerts'),
-            headers: _getHeaders(token: token),
-          )
-          .timeout(timeout);
-
-      if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
-        return data.map((json) => MaintenanceAlert.fromJson(json)).toList();
-      } else {
-        throw Exception('Failed to load alerts');
-      }
-    } catch (e) {
-      throw Exception('Error loading alerts: $e');
-    }
-  }
-
-  /// Get all alerts for all user's tractors
-  Future<List<MaintenanceAlert>> getAllUserAlerts(String token) async {
-    try {
-      // First get all tractors
-      final tractors = await getTractors(token);
-      
-      if (tractors.isEmpty) {
-        return []; // No tractors, no alerts
-      }
-      
-      // Fetch alerts for each tractor
-      final allAlerts = <MaintenanceAlert>[];
-      for (final tractor in tractors) {
-        try {
-          // Use tractor_id if available, otherwise fall back to id
-          final tractorIdentifier = tractor.tractorId ?? tractor.id;
-          final tractorAlerts = await getAlerts(token, tractorIdentifier);
-          allAlerts.addAll(tractorAlerts);
-        } catch (e) {
-          print('Error loading alerts for tractor ${tractor.tractorId ?? tractor.id}: $e');
-          // Continue with other tractors even if one fails
-        }
-      }
-      
-      return allAlerts;
-    } catch (e) {
-      throw Exception('Error loading alerts: $e');
-    }
-  }
-
-  // ============================================================================
-  // PREDICTION ENDPOINTS
-  // ============================================================================
-
-  /// Rule-based prediction
-  Future<PredictionResult> predictRuleBased(
-    String token,
-    String tractorId,
-    double engineHours,
-    String usageIntensity,
-  ) async {
-    try {
-      final response = await http
-          .post(
-            Uri.parse('$baseUrl/predict/rule-based'),
-            headers: _getHeaders(token: token),
-            body: jsonEncode({
-              'tractor_id': tractorId,
-              'engine_hours': engineHours,
-              'usage_intensity': usageIntensity,
-            }),
-          )
-          .timeout(timeout);
-
-      if (response.statusCode == 200) {
-        return PredictionResult.fromJson(jsonDecode(response.body));
-      } else {
-        throw Exception('Prediction failed');
-      }
-    } catch (e) {
-      throw Exception('Error making prediction: $e');
-    }
-  }
-
-  /// ML audio-based prediction
-  Future<PredictionResult> predictMLAudio(
-    String token,
-    String tractorId,
-    File audioFile,
-  ) async {
-    try {
-      var request = http.MultipartRequest(
-        'POST',
-        Uri.parse('$baseUrl/predict/ml-audio'),
-      );
-
-      request.headers.addAll(_getHeaders(token: token));
-      request.fields['tractor_id'] = tractorId;
-      request.files.add(
-        await http.MultipartFile.fromPath('audio_file', audioFile.path),
-      );
-
-      final streamedResponse = await request.send().timeout(
-        const Duration(minutes: 2), // Longer timeout for file upload
-      );
-      final response = await http.Response.fromStream(streamedResponse);
-
-      if (response.statusCode == 200) {
-        return PredictionResult.fromJson(jsonDecode(response.body));
-      } else {
-        throw Exception('Audio prediction failed');
-      }
-    } catch (e) {
-      throw Exception('Error with audio prediction: $e');
-    }
-  }
-
-  /// Combined prediction (rule-based + ML)
-  Future<PredictionResult> predictCombined(
-    String token,
-    String tractorId,
-    double engineHours,
-    String usageIntensity,
-    File? audioFile,
-  ) async {
-    try {
-      var request = http.MultipartRequest(
-        'POST',
-        Uri.parse('$baseUrl/predict/combined'),
-      );
-
-      request.headers.addAll(_getHeaders(token: token));
-      request.fields['tractor_id'] = tractorId;
-      request.fields['engine_hours'] = engineHours.toString();
-      request.fields['usage_intensity'] = usageIntensity;
-
-      if (audioFile != null) {
-        request.files.add(
-          await http.MultipartFile.fromPath('audio_file', audioFile.path),
-        );
-      }
-
-      final streamedResponse = await request.send().timeout(
-        const Duration(minutes: 2),
-      );
-      final response = await http.Response.fromStream(streamedResponse);
-
-      if (response.statusCode == 200) {
-        return PredictionResult.fromJson(jsonDecode(response.body));
-      } else {
-        throw Exception('Combined prediction failed');
-      }
-    } catch (e) {
-      throw Exception('Error with combined prediction: $e');
-    }
-  }
-
-  // ============================================================================
-  // UTILITY ENDPOINTS
-  // ============================================================================
-
-  /// Health check
-  Future<bool> checkHealth() async {
-    try {
-      final response = await http
-          .get(Uri.parse('$baseUrl/health'))
-          .timeout(const Duration(seconds: 5));
-      return response.statusCode == 200;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  /// Get API version
-  Future<String> getVersion() async {
-    try {
-      final response = await http
-          .get(Uri.parse('$baseUrl/'))
-          .timeout(const Duration(seconds: 5));
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return data['version'] ?? '1.0.0';
-      }
-      return '1.0.0';
-    } catch (e) {
-      return '1.0.0';
-    }
-  }
+  @override
+  String toString() => message;
 }

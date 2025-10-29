@@ -1,132 +1,200 @@
 // lib/models/tractor.dart
 
+enum TractorStatus {
+  good,
+  warning,
+  critical,
+  unknown,
+}
+
 class Tractor {
   final String id;
-  final String? tractorId; // The tractor_id from backend (e.g., "TR001")
+  final String tractorId;
+  final String userId;
   final String model;
-  final String brand;
   final double engineHours;
-  final String purchaseDate;
-  final String usageIntensity;
-  final String ownerId;
-  final String status;
-  final DateTime? createdAt;
+  final int? purchaseYear;
+  final String? notes;
+  final bool isActive;
+  final DateTime createdAt;
   final DateTime? updatedAt;
+  final TractorStatus status;
+  final DateTime? lastCheckDate;
+  final bool hasBaseline;
 
   Tractor({
     required this.id,
-    this.tractorId,
+    required this.tractorId,
+    required this.userId,
     required this.model,
-    required this.brand,
     required this.engineHours,
-    required this.purchaseDate,
-    required this.usageIntensity,
-    required this.ownerId,
-    this.status = 'active',
-    this.createdAt,
+    this.purchaseYear,
+    this.notes,
+    this.isActive = true,
+    required this.createdAt,
     this.updatedAt,
+    this.status = TractorStatus.unknown,
+    this.lastCheckDate,
+    this.hasBaseline = false,
   });
 
+  // From JSON
   factory Tractor.fromJson(Map<String, dynamic> json) {
     return Tractor(
       id: json['id'] ?? json['_id'] ?? '',
-      tractorId: json['tractor_id'],
+      tractorId: json['tractor_id'] ?? '',
+      userId: json['user_id'] ?? '',
       model: json['model'] ?? '',
-      brand: json['brand'] ?? json['make'] ?? '',
       engineHours: (json['engine_hours'] ?? 0).toDouble(),
-      purchaseDate: json['purchase_date'] ?? '',
-      usageIntensity: json['usage_intensity'] ?? 'moderate',
-      ownerId: json['owner_id'] ?? '',
-      status: json['status'] ?? 'active',
+      purchaseYear: json['purchase_year'],
+      notes: json['notes'],
+      isActive: json['is_active'] ?? true,
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'])
-          : null,
+          : DateTime.now(),
       updatedAt: json['updated_at'] != null
           ? DateTime.parse(json['updated_at'])
           : null,
+      status: _parseStatus(json['status']),
+      lastCheckDate: json['last_check_date'] != null
+          ? DateTime.parse(json['last_check_date'])
+          : null,
+      hasBaseline: json['has_baseline'] ?? false,
     );
   }
 
+  // Parse status string to enum
+  static TractorStatus _parseStatus(String? status) {
+    switch (status?.toLowerCase()) {
+      case 'good':
+        return TractorStatus.good;
+      case 'warning':
+        return TractorStatus.warning;
+      case 'critical':
+        return TractorStatus.critical;
+      default:
+        return TractorStatus.unknown;
+    }
+  }
+
+  // To JSON
   Map<String, dynamic> toJson() {
     return {
       'id': id,
-      if (tractorId != null) 'tractor_id': tractorId,
+      'tractor_id': tractorId,
+      'user_id': userId,
       'model': model,
-      'brand': brand,
       'engine_hours': engineHours,
-      'purchase_date': purchaseDate,
-      'usage_intensity': usageIntensity,
-      'owner_id': ownerId,
-      'status': status,
-      if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
-      if (updatedAt != null) 'updated_at': updatedAt!.toIso8601String(),
+      'purchase_year': purchaseYear,
+      'notes': notes,
+      'is_active': isActive,
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt?.toIso8601String(),
+      'status': status.name,
+      'last_check_date': lastCheckDate?.toIso8601String(),
+      'has_baseline': hasBaseline,
     };
   }
 
-  // Get human-readable usage intensity
-  String get displayUsageIntensity {
-    switch (usageIntensity.toLowerCase()) {
-      case 'light':
-        return 'Light Usage';
-      case 'moderate':
-        return 'Moderate Usage';
-      case 'heavy':
-        return 'Heavy Usage';
-      default:
-        return usageIntensity;
-    }
-  }
-
-  // Get health status based on engine hours
-  String get healthStatus {
-    if (engineHours < 500) return 'Excellent';
-    if (engineHours < 1000) return 'Good';
-    if (engineHours < 2000) return 'Fair';
-    return 'Needs Attention';
-  }
-
-  // Get health color
-  String get healthColor {
-    if (engineHours < 500) return 'success';
-    if (engineHours < 1000) return 'info';
-    if (engineHours < 2000) return 'warning';
-    return 'error';
-  }
-
-  // Calculate days since purchase
-  int? get daysSincePurchase {
-    try {
-      final purchase = DateTime.parse(purchaseDate);
-      return DateTime.now().difference(purchase).inDays;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  // Copy with method for updates
+  // Copy with
   Tractor copyWith({
     String? id,
+    String? tractorId,
+    String? userId,
     String? model,
-    String? brand,
     double? engineHours,
-    String? purchaseDate,
-    String? usageIntensity,
-    String? ownerId,
-    String? status,
+    int? purchaseYear,
+    String? notes,
+    bool? isActive,
     DateTime? createdAt,
     DateTime? updatedAt,
+    TractorStatus? status,
+    DateTime? lastCheckDate,
+    bool? hasBaseline,
   }) {
     return Tractor(
       id: id ?? this.id,
+      tractorId: tractorId ?? this.tractorId,
+      userId: userId ?? this.userId,
       model: model ?? this.model,
-      brand: brand ?? this.brand,
       engineHours: engineHours ?? this.engineHours,
-      purchaseDate: purchaseDate ?? this.purchaseDate,
-      usageIntensity: usageIntensity ?? this.usageIntensity,
-      ownerId: ownerId ?? this.ownerId,
-      status: status ?? this.status,
+      purchaseYear: purchaseYear ?? this.purchaseYear,
+      notes: notes ?? this.notes,
+      isActive: isActive ?? this.isActive,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      status: status ?? this.status,
+      lastCheckDate: lastCheckDate ?? this.lastCheckDate,
+      hasBaseline: hasBaseline ?? this.hasBaseline,
     );
   }
+
+  // Get status icon
+  String get statusIcon {
+    switch (status) {
+      case TractorStatus.good:
+        return '✅';
+      case TractorStatus.warning:
+        return '⚠️';
+      case TractorStatus.critical:
+        return '🔴';
+      default:
+        return '❓';
+    }
+  }
+
+  // Get status text
+  String get statusText {
+    switch (status) {
+      case TractorStatus.good:
+        return 'Good';
+      case TractorStatus.warning:
+        return 'Warning';
+      case TractorStatus.critical:
+        return 'Critical';
+      default:
+        return 'Unknown';
+    }
+  }
+
+  // Get formatted engine hours
+  String get formattedEngineHours {
+    return '${engineHours.toStringAsFixed(1)} hrs';
+  }
+
+  // Get time since last check
+  String get timeSinceLastCheck {
+    if (lastCheckDate == null) return 'Never checked';
+    
+    final difference = DateTime.now().difference(lastCheckDate!);
+    
+    if (difference.inMinutes < 60) {
+      return '${difference.inMinutes}m ago';
+    } else if (difference.inHours < 24) {
+      return '${difference.inHours}h ago';
+    } else if (difference.inDays < 7) {
+      return '${difference.inDays}d ago';
+    } else {
+      return '${(difference.inDays / 7).floor()}w ago';
+    }
+  }
+
+  // Get tractor age
+  String get tractorAge {
+    if (purchaseYear == null) return 'Unknown';
+    final age = DateTime.now().year - purchaseYear!;
+    return age == 0 ? 'New' : '$age years old';
+  }
+
+  @override
+  String toString() => 'Tractor(id: $tractorId, model: $model)';
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is Tractor && other.id == id;
+  }
+
+  @override
+  int get hashCode => id.hashCode;
 }

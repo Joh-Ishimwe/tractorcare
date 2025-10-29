@@ -113,6 +113,6 @@ class PredictionResult {
 
   // Get issue summary
   String get summary {
-    return '$predictedIssue (${displaySeverity})';
+    return '$predictedIssue ($displaySeverity)';
   }
 }
