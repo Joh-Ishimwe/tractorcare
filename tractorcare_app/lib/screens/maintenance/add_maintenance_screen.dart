@@ -77,7 +77,8 @@ class _AddMaintenanceScreenState extends State<AddMaintenanceScreen> {
     };
 
     try {
-      await _api.createMaintenance(_tractorId!, data);
+      data['tractor_id'] = _tractorId!;
+      await _api.createMaintenance(data);
 
       if (!mounted) return;
 

@@ -1,6 +1,7 @@
 // lib/services/audio_service.dart
 
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -16,53 +17,114 @@ class AudioService {
 
   // Request microphone permission
   Future<bool> requestPermission() async {
-    final status = await Permission.microphone.request();
-    return status.isGranted;
+    try {
+      print('🔐 Requesting microphone permission...');
+      
+      // For mobile platforms, use permission_handler
+      if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
+        final status = await Permission.microphone.request();
+        print('📱 Mobile permission status: ${status.name}');
+        return status.isGranted;
+      } else {
+        // For web and desktop, use recorder's permission
+        final hasPermission = await _recorder.hasPermission();
+        print('🌐 Web/Desktop permission: $hasPermission');
+        return hasPermission;
+      }
+    } catch (e) {
+      print('❌ Error requesting permission: $e');
+      return false;
+    }
   }
 
   // Check if permission is granted
   Future<bool> hasPermission() async {
-    final status = await Permission.microphone.status;
-    return status.isGranted;
+    try {
+      // For mobile platforms, use permission_handler
+      if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
+        final status = await Permission.microphone.status;
+        return status.isGranted;
+      } else {
+        // For web and desktop, use recorder's permission
+        return await _recorder.hasPermission();
+      }
+    } catch (e) {
+      print('❌ Error checking permission: $e');
+      return false;
+    }
   }
 
   // Start recording
   Future<bool> startRecording() async {
     try {
-      // Check permission
-      if (!await hasPermission()) {
-        final granted = await requestPermission();
-        if (!granted) {
-          throw Exception('Microphone permission denied');
-        }
-      }
-
+      print('🎤 Starting audio recording...');
+      
       // Check if already recording
       if (_isRecording) {
+        print('⚠️ Already recording');
         return false;
       }
 
-      // Get temporary directory
-      final directory = await getTemporaryDirectory();
+      // Check and request permission
+      if (!await hasPermission()) {
+        print('🔐 Requesting microphone permission...');
+        final granted = await requestPermission();
+        if (!granted) {
+          print('❌ Microphone permission denied');
+          throw Exception('Microphone permission denied. Please allow microphone access in your browser settings.');
+        }
+      }
+
+      // Handle path and config for different platforms
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final path = '${directory.path}/audio_$timestamp.m4a';
+      String path;
+      RecordConfig config;
+      
+      if (kIsWeb) {
+        // Web platform - use a temporary name, recorder handles blob internally
+        path = 'audio_$timestamp.wav';
+        config = const RecordConfig(
+          encoder: AudioEncoder.wav,
+          sampleRate: 16000,
+        );
+        print('🌐 Web recording');
+      } else {
+        // Mobile and desktop platforms - need file path
+        final directory = await getTemporaryDirectory();
+        
+        if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
+          // Desktop platforms
+          path = '${directory.path}/audio_$timestamp.wav';
+          config = const RecordConfig(
+            encoder: AudioEncoder.wav,
+            sampleRate: 16000,
+            bitRate: 128000,
+          );
+        } else {
+          // Mobile platforms
+          path = '${directory.path}/audio_$timestamp.m4a';
+          config = const RecordConfig(
+            encoder: AudioEncoder.aacLc,
+            sampleRate: 16000,
+            bitRate: 128000,
+          );
+        }
+      }
+
+      print('📁 Recording to: $path');
+      print('⚙️ Config: ${config.encoder}, ${config.sampleRate}Hz');
 
       // Start recording
-      await _recorder.start(
-        const RecordConfig(
-          encoder: AudioEncoder.aacLc,
-          bitRate: 128000,
-          sampleRate: 44100,
-        ),
-        path: path,
-      );
+      await _recorder.start(config, path: path);
 
       _isRecording = true;
       _currentRecordingPath = path;
 
+      print('✅ Recording started successfully');
       return true;
     } catch (e) {
-      print('Error starting recording: $e');
+      print('❌ Error starting recording: $e');
+      _isRecording = false;
       return false;
     }
   }

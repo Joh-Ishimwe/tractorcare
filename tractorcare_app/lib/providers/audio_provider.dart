@@ -29,10 +29,7 @@ class AudioProvider with ChangeNotifier {
     _setLoading(true);
 
     try {
-      _predictions = await _api.getPredictions(
-        tractorId: tractorId,
-        limit: limit,
-      );
+      _predictions = await _api.getPredictions(tractorId ?? 'default');
       _setLoading(false);
     } catch (e) {
       _setError(e.toString());
@@ -53,9 +50,9 @@ class AudioProvider with ChangeNotifier {
       final file = File(filePath);
       
       final prediction = await _api.uploadAudio(
-        file,
-        tractorId,
-        engineHours,
+        audioFile: file,
+        tractorId: tractorId,
+        engineHours: engineHours,
       );
 
       _currentPrediction = prediction;

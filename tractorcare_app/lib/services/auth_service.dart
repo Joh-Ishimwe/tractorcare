@@ -40,15 +40,7 @@ class AuthService {
     required String lastName,
     String? phoneNumber,
   }) async {
-    final userData = {
-      'email': email,
-      'password': password,
-      'first_name': firstName,
-      'last_name': lastName,
-      if (phoneNumber != null) 'phone_number': phoneNumber,
-    };
-
-    final response = await _api.register(userData);
+    await _api.register(email, password, '$firstName $lastName');
     
     // Auto-login after registration
     return await login(email, password);

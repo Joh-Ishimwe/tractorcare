@@ -53,7 +53,6 @@ class _MaintenanceDetailScreenState extends State<MaintenanceDetailScreen> {
 
     try {
       await _api.updateMaintenance(
-        _maintenance.tractorId,
         _maintenance.id,
         {
           'status': 'completed',
@@ -113,10 +112,7 @@ class _MaintenanceDetailScreenState extends State<MaintenanceDetailScreen> {
     setState(() => _isLoading = true);
 
     try {
-      await _api.deleteMaintenance(
-        _maintenance.tractorId,
-        _maintenance.id,
-      );
+      await _api.deleteMaintenance(_maintenance.id);
 
       if (!mounted) return;
 
