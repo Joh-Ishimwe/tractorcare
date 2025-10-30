@@ -128,3 +128,4 @@ class Database:
 async def get_database():
     """Dependency for getting database connection"""
     return Database.client
+

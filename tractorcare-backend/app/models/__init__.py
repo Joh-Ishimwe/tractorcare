@@ -436,6 +436,24 @@ class BaselineMetadata(Document):
         name = "baseline_metadata"
         indexes = ["tractor_id", "status"]
 
+# Add at the end of the file
+
+class DailyUsageCreate(BaseModel):
+    """Schema for recording daily usage"""
+    end_hours: float = Field(..., gt=0, description="Current engine hours")
+    notes: Optional[str] = Field(None, max_length=500)
+
+
+class DailyUsageResponse(BaseModel):
+    """Schema for daily usage response"""
+    id: str
+    tractor_id: str
+    date: datetime
+    start_hours: float
+    end_hours: float
+    hours_used: float
+    notes: Optional[str]
+    created_at: datetime
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -453,5 +471,6 @@ async def get_all_document_models():
         MaintenanceSchedule,
         TractorBaseline,        # NEW: Baseline model
         AudioTrend,             # NEW: Trend tracking
-        BaselineMetadata,       # NEW: Baseline metadata
+        BaselineMetadata,
+        DailyUsage,# NEW: Baseline metadata
     ]
