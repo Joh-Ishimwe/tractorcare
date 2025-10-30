@@ -96,6 +96,11 @@ class AppColors {
     Color(0xFF795548), // Brown
   ];
   
+  static const Color gradientStart = Color(0xFF4CAF50); // Green, example primary gradient start
+  static const Color gradientEnd = Color(0xFF2196F3); // Blue, example gradient end
+  static const Color textOnPrimary = Colors.white;
+  static const Color surfaceElevated = Color(0xFFF6F9FC);
+  
   // Get status color
   static Color getStatusColor(String status) {
     switch (status.toLowerCase()) {

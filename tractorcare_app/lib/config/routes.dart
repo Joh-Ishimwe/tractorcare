@@ -19,6 +19,7 @@ import '../screens/maintenance/maintenance_detail_screen.dart';
 import '../screens/maintenance/add_maintenance_screen.dart';
 import '../screens/profile/profile_screen.dart';
 import '../screens/profile/settings_screen.dart';
+import '../screens/home/statistics_screen.dart';
 
 class AppRoutes {
   static const String splash = '/';
@@ -39,6 +40,7 @@ class AppRoutes {
   static const String addMaintenance = '/add-maintenance';
   static const String profile = '/profile';
   static const String settings = '/settings';
+  static const String statistics = '/statistics';
 
   static Map<String, WidgetBuilder> get routes => {
         splash: (context) => const SplashScreen(),
@@ -59,5 +61,6 @@ class AppRoutes {
         addMaintenance: (context) => const AddMaintenanceScreen(),
         profile: (context) => const ProfileScreen(),
         settings: (context) => const SettingsScreen(),
+        statistics: (context) => const StatisticsScreen(),
       };
 }

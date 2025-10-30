@@ -42,15 +42,6 @@ class ApiService {
       }
     } catch (e) {
       print('❌ Login error: $e');
-      
-      // Only use mock for specific emails if real API fails
-      if (email == 'jishimwe24@gmail.com' || email == 'j.ishimwe3@alustudent.com') {
-        print('🎭 Using mock authentication');
-        return {
-          'access_token': 'mock_token_${DateTime.now().millisecondsSinceEpoch}',
-          'token_type': 'bearer',
-        };
-      }
       rethrow;
     }
   }
@@ -67,12 +58,7 @@ class ApiService {
       throw Exception('Failed to get user info');
     } catch (e) {
       print('Get user error: $e');
-      // Mock fallback
-      return {
-        'id': 'mock_user_id',
-        'email': 'jishimwe24@gmail.com',
-        'full_name': 'Jean De Dieu Ishimwe',
-      };
+      rethrow;
     }
   }
 
@@ -98,22 +84,7 @@ class ApiService {
       throw Exception('Failed to get tractors - Status: ${response.statusCode}');
     } catch (e) {
       print('❌ Get tractors error: $e');
-      print('🎭 Using mock tractor data');
-      // Mock fallback with different data each time to see difference
-      return [
-        Tractor.fromJson({
-          'id': 'mock_${DateTime.now().millisecondsSinceEpoch}',
-          'tractor_id': 'MOCK_MF240_001',
-          'user_id': 'mock_user_id',
-          'model': 'MF 240 (Mock Data)',
-          'engine_hours': 1250.5,
-          'purchase_year': 2020,
-          'is_active': true,
-          'created_at': DateTime.now().toIso8601String(),
-          'status': 'good',
-          'has_baseline': true,
-        }),
-      ];
+      rethrow;
     }
   }
 
@@ -139,21 +110,7 @@ class ApiService {
       throw Exception('Failed to create tractor - Status: ${response.statusCode}: ${response.body}');
     } catch (e) {
       print('❌ Create tractor error: $e');
-      print('🎭 Using mock tractor creation');
-      
-      // Mock fallback with clear indication
-      return Tractor.fromJson({
-        'id': 'mock_${DateTime.now().millisecondsSinceEpoch}',
-        'tractor_id': '${tractorData['tractor_id']} (MOCK)',
-        'user_id': 'mock_user_id',
-        'model': '${tractorData['model']} (Mock)',
-        'engine_hours': tractorData['engine_hours'] ?? 0.0,
-        'purchase_year': tractorData['year'],
-        'is_active': true,
-        'created_at': DateTime.now().toIso8601String(),
-        'status': 'good',
-        'has_baseline': false,
-      });
+      rethrow;
     }
   }
 
@@ -203,16 +160,7 @@ class ApiService {
       }
     } catch (e) {
       print('Audio upload error: $e');
-      // Mock fallback for offline testing
-      return AudioPrediction.fromJson({
-        'id': 'prediction_${DateTime.now().millisecondsSinceEpoch}',
-        'tractor_id': tractorId,
-        'prediction_class': 'Normal',
-        'confidence': 0.89,
-        'anomaly_score': 0.11,
-        'audio_file_path': 'mock/audio/path.wav',
-        'recorded_at': DateTime.now().toIso8601String(),
-      });
+      rethrow;
     }
   }
 
@@ -244,19 +192,7 @@ class ApiService {
       }
       throw Exception('Failed to get tractor');
     } catch (e) {
-      // Mock fallback
-      return Tractor.fromJson({
-        'id': tractorId,
-        'tractor_id': 'MF240_001',
-        'user_id': 'mock_user_id',
-        'model': 'MF 240',
-        'engine_hours': 1250.5,
-        'purchase_year': 2020,
-        'is_active': true,
-        'created_at': DateTime.now().toIso8601String(),
-        'status': 'good',
-        'has_baseline': true,
-      });
+      rethrow;
     }
   }
 
@@ -272,19 +208,7 @@ class ApiService {
       }
       throw Exception('Failed to update tractor');
     } catch (e) {
-      // Mock fallback
-      return Tractor.fromJson({
-        'id': tractorId,
-        'tractor_id': updates['tractor_id'] ?? 'MF240_001',
-        'user_id': 'mock_user_id',
-        'model': updates['model'] ?? 'MF 240',
-        'engine_hours': updates['engine_hours'] ?? 1250.5,
-        'purchase_year': updates['purchase_year'] ?? 2020,
-        'is_active': updates['is_active'] ?? true,
-        'created_at': DateTime.now().toIso8601String(),
-        'status': updates['status'] ?? 'good',
-        'has_baseline': true,
-      });
+      rethrow;
     }
   }
 
@@ -298,8 +222,7 @@ class ApiService {
         throw Exception('Failed to delete tractor');
       }
     } catch (e) {
-      // Mock fallback - just return success
-      return;
+      rethrow;
     }
   }
 
@@ -437,16 +360,7 @@ class ApiService {
       }
     } catch (e) {
       print('Baseline start error: $e');
-      // Mock fallback
-      return {
-        'message': 'Baseline collection started (mock mode)',
-        'tractor_id': tractorId,
-        'target_samples': targetSamples,
-        'collected_samples': 0,
-        'status': 'collecting',
-        'instructions': 'Record audio when tractor is running normally',
-        'next_step': 'Upload $targetSamples audio samples'
-      };
+      rethrow;
     }
   }
 
@@ -483,16 +397,7 @@ class ApiService {
       }
     } catch (e) {
       print('Baseline sample error: $e');
-      // Mock fallback
-      return {
-        'message': 'Baseline sample added (mock mode)',
-        'tractor_id': tractorId,
-        'sample_number': DateTime.now().millisecondsSinceEpoch % 5 + 1,
-        'collected_samples': DateTime.now().millisecondsSinceEpoch % 5 + 1,
-        'target_samples': 5,
-        'status': 'collecting',
-        'next_step': 'Upload more samples or finalize baseline'
-      };
+      rethrow;
     }
   }
 
@@ -510,15 +415,7 @@ class ApiService {
       }
     } catch (e) {
       print('Baseline finalize error: $e');
-      // Mock fallback
-      return {
-        'message': 'Baseline finalized (mock mode)',
-        'tractor_id': tractorId,
-        'status': 'completed',
-        'baseline_created': true,
-        'samples_processed': 5,
-        'baseline_quality': 'excellent'
-      };
+      rethrow;
     }
   }
 
@@ -536,17 +433,82 @@ class ApiService {
       }
     } catch (e) {
       print('Baseline status error: $e');
-      // Mock fallback
-      return {
-        'tractor_id': tractorId,
-        'has_baseline': true,
-        'status': 'completed',
-        'collected_samples': 5,
-        'target_samples': 5,
-        'created_at': DateTime.now().subtract(const Duration(days: 7)).toIso8601String(),
-        'baseline_quality': 'excellent'
-      };
+      rethrow;
     }
+  }
+
+  // ===== USAGE TRACKING METHODS =====
+
+  Future<Map<String, dynamic>> logDailyUsage(
+    String tractorId,
+    double endHours,
+    String? notes,
+  ) async {
+    print('📊 Logging usage for tractor: $tractorId');
+    print('⏰ End hours: $endHours');
+    
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/usage-tracking/$tractorId/log'),
+        headers: _getHeaders(),
+        body: json.encode({
+          'end_hours': endHours,
+          'notes': notes,
+        }),
+      );
+      
+      print('📡 Usage log response: ${response.statusCode}');
+      print('📄 Usage log body: ${response.body}');
+      
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return json.decode(response.body);
+      }
+      throw Exception('Failed to log usage: ${response.body}');
+    } catch (e) {
+      print('❌ Usage log error: $e');
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> getUsageStats(String tractorId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/usage-tracking/$tractorId/stats'),
+        headers: _getHeaders(),
+      );
+      
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      }
+      throw Exception('Failed to get usage stats');
+    } catch (e) {
+      print('Usage stats error: $e');
+      rethrow;
+    }
+  }
+
+  Future<List<dynamic>> getUsageHistory(String tractorId, {int days = 30}) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/usage-tracking/$tractorId/history').replace(queryParameters: {
+          'days': days.toString(),
+        }),
+        headers: _getHeaders(),
+      );
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data['history'] ?? data;
+      }
+      throw Exception('Failed to get usage history');
+    } catch (e) {
+      print('Usage history error: $e');
+      rethrow;
+    }
+  }
+
+  Future<Tractor> getTractorById(String tractorId) async {
+    return getTractor(tractorId);
   }
 }
 
