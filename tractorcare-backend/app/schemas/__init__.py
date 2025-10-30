@@ -19,7 +19,23 @@ from app.models import (
 # ============================================================================
 # USER SCHEMAS
 # ============================================================================
+# Add these schemas
 
+class DailyUsageCreate(BaseModel):
+    """Schema for recording daily usage"""
+    end_hours: float = Field(..., gt=0, description="Current engine hours")
+    notes: Optional[str] = Field(None, max_length=500)
+
+class DailyUsageResponse(BaseModel):
+    """Schema for daily usage response"""
+    id: str
+    tractor_id: str
+    date: datetime
+    start_hours: float
+    end_hours: float
+    hours_used: float
+    notes: Optional[str]
+    created_at: datetime
 class UserCreate(BaseModel):
     """Schema for creating a new user"""
     email: EmailStr

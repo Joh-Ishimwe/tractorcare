@@ -15,7 +15,24 @@ from bson import ObjectId
 # ============================================================================
 # ENUMS
 # ============================================================================
+# Add to existing models
 
+
+class DailyUsage(Document):
+    """Track daily tractor usage"""
+    tractor_id: str = Field(..., description="Tractor identifier")
+    date: datetime = Field(default_factory=datetime.utcnow, description="Date of usage")
+    start_hours: float = Field(..., description="Engine hours at start of day")
+    end_hours: float = Field(..., description="Engine hours at end of day")
+    hours_used: float = Field(..., description="Hours used this day")
+    notes: Optional[str] = Field(None, description="Optional notes")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    class Settings:
+        name = "daily_usage"
+        indexes = [
+            [("tractor_id", 1), ("date", -1)],  # Composite index
+        ]
 class UsageIntensity(str, Enum):
     """Tractor usage intensity levels"""
     LIGHT = "light"

@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 import logging
 from app.core.config import get_settings
 from app.core.database import Database
+from app.routes import usage_tracking
 
 # Setup logging
 logging.basicConfig(
@@ -130,6 +131,11 @@ app.include_router(
     prefix="/baseline", 
     tags=["Baseline"])
 
+app.include_router(
+    usage_tracking.router,
+    prefix="/usage",
+    tags=["Usage Tracking"]
+)
 
 app.include_router(
     maintenance.router,
