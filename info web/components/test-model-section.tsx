@@ -4,19 +4,11 @@ import type React from "react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { Upload, Send, MessageCircle, Mic } from "lucide-react"
+import { Upload } from "lucide-react"
 
 export function TestModelSection() {
   const [file, setFile] = useState<File | null>(null)
   const [isDragging, setIsDragging] = useState(false)
-  const [chatMode, setChatMode] = useState<"chat" | "voice">("chat")
-  const [messages, setMessages] = useState([
-    {
-      role: "assistant",
-      content: "Hello! I'm your AI tractor maintenance assistant. How can I help you with your tractor today?",
-    },
-  ])
-  const [inputValue, setInputValue] = useState("")
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault()
@@ -69,48 +61,14 @@ export function TestModelSection() {
 
       const result = await response.json()
       setPredictionResult(result)
-      
-      // Add result message to chat
-      const resultMessage = result.interpretation 
-        ? `${result.interpretation.message}. ${result.interpretation.recommendation}`
-        : `Prediction: ${result.prediction?.class || 'Unknown'} (Confidence: ${(result.prediction?.confidence || 0) * 100}%)`
-      
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: resultMessage,
-        },
-      ])
     } catch (error: any) {
       const errorMessage = error.message || 'Failed to analyze audio. Please try again.'
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: `❌ Error: ${errorMessage}`,
-        },
-      ])
+      setPredictionResult({
+        error: true,
+        message: errorMessage
+      })
     } finally {
       setIsProcessing(false)
-    }
-  }
-
-  const handleSendMessage = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (inputValue.trim()) {
-      setMessages([...messages, { role: "user", content: inputValue }])
-      setInputValue("")
-      // Simulate AI response
-      setTimeout(() => {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: "I'm analyzing your question. This is a demo response. Full AI integration coming soon!",
-          },
-        ])
-      }, 1000)
     }
   }
 
@@ -124,12 +82,11 @@ export function TestModelSection() {
             </h2>
             <p className="text-xl text-gray-300 text-pretty max-w-3xl mx-auto">
               Ready for TractorCare to keep your tractor running? Upload an audio recording of your tractor engine and
-              get instant AI-powered analysis, or chat with our intelligent assistant.
+              get instant AI-powered analysis powered by our transfer learning model trained on real tractor sounds.
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-6">
-            {/* Audio Upload Section */}
+          <div className="max-w-2xl mx-auto">
             <Card className="border-primary/20 bg-[#0f3829] shadow-xl">
               <CardContent className="pt-8 pb-8">
                 <h3 className="text-lg font-bold mb-6 text-white">Upload a tractor audio clip to get an instant health prediction. No account needed—try it now!</h3>
@@ -174,7 +131,7 @@ export function TestModelSection() {
                     {isProcessing ? "Analyzing..." : "Predict Tractor Health"}
                   </Button>
                   
-                  {predictionResult && (
+                  {predictionResult && !predictionResult.error && (
                     <div className="mt-4 p-4 rounded-lg bg-[#1a4d3a] border border-primary/30">
                       <div className="space-y-2">
                         <div className="flex items-center gap-2">
@@ -199,75 +156,15 @@ export function TestModelSection() {
                       </div>
                     </div>
                   )}
-                </form>
-              </CardContent>
-            </Card>
 
-            {/* Chatbot Section */}
-            <Card className="border-primary/20 bg-[#0f3829] shadow-xl flex flex-col">
-              <CardContent className="pt-8 pb-6 flex flex-col h-full">
-                <div className="flex items-center justify-between mb-6">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-                    <h3 className="text-lg font-semibold text-white">AI Assistant</h3>
-                    <span className="text-xs text-gray-400">Powered by TractorCare AI</span>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant={chatMode === "chat" ? "default" : "outline"}
-                      onClick={() => setChatMode("chat")}
-                      className={chatMode === "chat" ? "bg-primary hover:bg-primary/90" : "border-gray-600"}
-                    >
-                      <MessageCircle className="h-4 w-4 mr-1" />
-                      Chat
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant={chatMode === "voice" ? "default" : "outline"}
-                      onClick={() => setChatMode("voice")}
-                      className={chatMode === "voice" ? "bg-primary hover:bg-primary/90" : "border-gray-600"}
-                    >
-                      <Mic className="h-4 w-4 mr-1" />
-                      Voice
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Chat Messages */}
-                <div className="flex-1 space-y-4 mb-6 overflow-y-auto max-h-[300px]">
-                  {messages.map((message, index) => (
-                    <div key={index} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
-                      <div
-                        className={`max-w-[80%] rounded-lg px-4 py-3 ${
-                          message.role === "user"
-                            ? "bg-primary text-white"
-                            : "bg-[#1a4d3a] text-gray-200 border border-gray-700"
-                        }`}
-                      >
-                        <p className="text-sm leading-relaxed">{message.content}</p>
+                  {predictionResult?.error && (
+                    <div className="mt-4 p-4 rounded-lg bg-red-900/30 border border-red-500/50">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl">❌</span>
+                        <p className="text-sm text-red-200">{predictionResult.message}</p>
                       </div>
                     </div>
-                  ))}
-                </div>
-
-                {/* Chat Input */}
-                <form onSubmit={handleSendMessage} className="flex gap-2">
-                  <input
-                    type="text"
-                    value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
-                    placeholder="Ask about your tractor maintenance..."
-                    className="flex-1 bg-[#1a4d3a] border border-gray-700 rounded-lg px-4 py-3 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
-                  <Button
-                    type="submit"
-                    size="icon"
-                    className="bg-primary hover:bg-primary/90 h-12 w-12"
-                    disabled={!inputValue.trim()}
-                  >
-                    <Send className="h-5 w-5" />
-                  </Button>
+                  )}
                 </form>
               </CardContent>
             </Card>

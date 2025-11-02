@@ -19,12 +19,18 @@ TractorCare is a hybrid machine learning system designed for the early detection
 
 ## Dataset
 
-**Source:** MIMII Dataset (Malfunctioning Industrial Machine Investigation and Inspection)
-- **Machine Type:** Industrial pumps (used as a proxy for tractor engines)
-- **Samples:** 912 audio recordings (456 normal, 456 abnormal) after balancing
-- **Duration:** 10 seconds per sample at 16kHz sampling rate
-- **Format:** WAV files
-- **Note:** A tractor-specific dataset is planned for future enhancement.
+**Source:** 
+- **Initial Training:** MIMII Dataset (Malfunctioning Industrial Machine Investigation and Inspection)
+  - Industrial pumps (used as a proxy for tractor engines)
+  - 912 audio recordings (456 normal, 456 abnormal) after balancing
+  - 10 seconds per sample at 16kHz sampling rate
+  - WAV format
+
+- **Transfer Learning Dataset:** Real Tractor Sounds from Freesound
+  - Tractor-specific audio samples collected from Freesound platform
+  - Used for fine-tuning the ResNet-like CNN model
+  - Enables better generalization to actual tractor engine sounds
+  - Improves accuracy for real-world tractor maintenance scenarios
 
 ---
 
@@ -52,7 +58,7 @@ TractorCare is a hybrid machine learning system designed for the early detection
   5. **VGG-like CNN** - Deeper architecture with batch normalization
   6. **ResNet-like CNN** - Residual connections for better gradient flow
 
-- **Transfer Learning Plan:** Pre-trained ResNet-like CNN on MIMII data, fine-tuned on future tractor data with early layer freezing and lower learning rates.
+- **Transfer Learning:** Pre-trained ResNet-like CNN on MIMII data, fine-tuned on real tractor sounds from Freesound with early layer freezing and lower learning rates. This transfer learning approach significantly improves the model's accuracy for actual tractor engine anomaly detection.
 
 ---
 
@@ -449,4 +455,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ---
 
-**Built with ❤️ for smallholder farmers in Rwanda**
+**Built with for smallholder farmers in Rwanda**
