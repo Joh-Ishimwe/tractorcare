@@ -36,10 +36,15 @@ class _AudioTestScreenState extends State<AudioTestScreen> {
     await tractorProvider.fetchTractors();
     
     if (tractorProvider.tractors.isNotEmpty && _selectedTractorId == null) {
-      setState(() {
-        _selectedTractorId = tractorProvider.tractors.first.id;
-        _engineHoursController.text = 
-            tractorProvider.tractors.first.engineHours.toString();
+      // Use tractor_id (like "T005") not database id
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() {
+            _selectedTractorId = tractorProvider.tractors.first.tractorId;
+            _engineHoursController.text = 
+                tractorProvider.tractors.first.engineHours.toString();
+          });
+        }
       });
     }
   }
@@ -82,9 +87,19 @@ class _AudioTestScreenState extends State<AudioTestScreen> {
         allowMultiple: false,
       );
 
-      if (result != null && result.files.single.path != null) {
-        final filePath = result.files.single.path!;
-        _uploadAudio(filePath);
+      if (result != null && result.files.isNotEmpty) {
+        final pickedFile = result.files.single;
+        
+        // Handle web vs mobile: use bytes on web, path on mobile
+        if (pickedFile.bytes != null) {
+          // Web: use bytes
+          await _uploadAudioBytes(pickedFile.bytes!, pickedFile.name);
+        } else if (pickedFile.path != null) {
+          // Mobile/Desktop: use path
+          _uploadAudio(pickedFile.path!);
+        } else {
+          _showError('Failed to access file data');
+        }
       }
     } catch (e) {
       _showError('Failed to pick file: $e');
@@ -96,6 +111,29 @@ class _AudioTestScreenState extends State<AudioTestScreen> {
 
     final prediction = await audioProvider.uploadAudio(
       filePath,
+      _selectedTractorId!,
+      double.parse(_engineHoursController.text),
+    );
+
+    if (!mounted) return;
+
+    if (prediction != null) {
+      Navigator.pushNamed(
+        context,
+        '/audio-results',
+        arguments: prediction,
+      );
+    } else {
+      _showError(audioProvider.error ?? 'Upload failed');
+    }
+  }
+
+  Future<void> _uploadAudioBytes(List<int> bytes, String filename) async {
+    final audioProvider = Provider.of<AudioProvider>(context, listen: false);
+
+    final prediction = await audioProvider.uploadAudioBytes(
+      bytes,
+      filename,
       _selectedTractorId!,
       double.parse(_engineHoursController.text),
     );
@@ -287,17 +325,18 @@ class _AudioTestScreenState extends State<AudioTestScreen> {
                           ),
                           items: provider.tractors.map((Tractor tractor) {
                             return DropdownMenuItem<String>(
-                              value: tractor.id,
+                              value: tractor.tractorId, // Use tractor_id not database id
                               child: Text('${tractor.tractorId} - ${tractor.model}'),
                             );
                           }).toList(),
                           onChanged: (value) {
                             setState(() {
                               _selectedTractorId = value;
-                              final tractor = provider.tractors
-                                  .firstWhere((t) => t.id == value);
-                              _engineHoursController.text =
-                                  tractor.engineHours.toString();
+                              // Update engine hours when tractor changes
+                              final selectedTractor = provider.tractors.firstWhere(
+                                (t) => t.tractorId == value,
+                              );
+                              _engineHoursController.text = selectedTractor.engineHours.toString();
                             });
                           },
                         );

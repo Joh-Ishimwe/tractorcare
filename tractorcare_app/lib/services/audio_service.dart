@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:http/http.dart' as http;
 
 class AudioService {
   final AudioRecorder _recorder = AudioRecorder();
@@ -129,7 +130,7 @@ class AudioService {
     }
   }
 
-  // Stop recording
+  // Stop recording - returns path or blob URL (on web)
   Future<String?> stopRecording() async {
     try {
       if (!_isRecording) {
@@ -143,6 +144,30 @@ class AudioService {
     } catch (e) {
       print('Error stopping recording: $e');
       _isRecording = false;
+      return null;
+    }
+  }
+
+  // Get recording bytes (for web platform)
+  Future<List<int>?> getRecordingBytes(String pathOrBlobUrl) async {
+    try {
+      if (kIsWeb) {
+        // On web, pathOrBlobUrl is a blob URL, fetch it as bytes
+        final response = await http.get(Uri.parse(pathOrBlobUrl));
+        if (response.statusCode == 200) {
+          return response.bodyBytes;
+        }
+        return null;
+      } else {
+        // On mobile/desktop, read file bytes
+        final file = File(pathOrBlobUrl);
+        if (await file.exists()) {
+          return await file.readAsBytes();
+        }
+        return null;
+      }
+    } catch (e) {
+      print('Error getting recording bytes: $e');
       return null;
     }
   }

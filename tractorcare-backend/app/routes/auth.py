@@ -1,6 +1,6 @@
 """
 Authentication Routes
-User registration, login, profile management
+User registration, login, and profile management
 """
 
 from fastapi import APIRouter, HTTPException, status, Depends
@@ -16,10 +16,7 @@ settings = get_settings()
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(user_data: UserCreate):
-    """
-    Register a new user
-    """
-    # Check if user already exists
+    """Register a new user account"""
     existing_user = await User.find_one(User.email == user_data.email)
     if existing_user:
         raise HTTPException(
@@ -27,10 +24,8 @@ async def register(user_data: UserCreate):
             detail="Email already registered"
         )
     
-    # Hash password
     hashed_password = AuthService.get_password_hash(user_data.password)
     
-    # Create user
     user = User(
         email=user_data.email,
         full_name=user_data.full_name,
@@ -52,10 +47,7 @@ async def register(user_data: UserCreate):
 
 @router.post("/login", response_model=Token)
 async def login(credentials: UserLogin):
-    """
-    Login and get access token
-    """
-    # Find user
+    """Authenticate user and return JWT access token"""
     user = await User.find_one(User.email == credentials.email)
     
     if not user:
@@ -64,21 +56,18 @@ async def login(credentials: UserLogin):
             detail="Incorrect email or password"
         )
     
-    # Verify password
     if not AuthService.verify_password(credentials.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password"
         )
     
-    # Check if user is active
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is inactive"
         )
     
-    # Create access token
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = AuthService.create_access_token(
         data={"sub": user.email},
@@ -90,9 +79,7 @@ async def login(credentials: UserLogin):
 
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_profile(current_user: User = Depends(get_current_user)):
-    """
-    Get current user profile
-    """
+    """Get current authenticated user's profile"""
     return UserResponse(
         id=str(current_user.id),
         email=current_user.email,
@@ -108,10 +95,7 @@ async def update_profile(
     update_data: dict,
     current_user: User = Depends(get_current_user)
 ):
-    """
-    Update current user profile
-    """
-    # Update allowed fields
+    """Update current user's profile information"""
     if "full_name" in update_data:
         current_user.full_name = update_data["full_name"]
     if "phone" in update_data:

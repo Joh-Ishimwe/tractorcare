@@ -8,7 +8,7 @@ import '../../config/colors.dart';
 import '../../config/app_config.dart';
 
 class RecordingScreen extends StatefulWidget {
-  const RecordingScreen({Key? key}) : super(key: key);
+  const RecordingScreen({super.key});
 
   @override
   State<RecordingScreen> createState() => _RecordingScreenState();

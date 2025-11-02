@@ -567,6 +567,8 @@ class AudioResultsScreen extends StatelessWidget {
         return Colors.orange;
       case 'medium':
         return Colors.yellow;
+      case 'unknown':
+        return Colors.grey;
       default:
         return Colors.green;
     }
@@ -580,6 +582,8 @@ class AudioResultsScreen extends StatelessWidget {
         return Icons.warning;
       case 'medium':
         return Icons.info;
+      case 'unknown':
+        return Icons.help_outline;
       default:
         return Icons.check_circle;
     }

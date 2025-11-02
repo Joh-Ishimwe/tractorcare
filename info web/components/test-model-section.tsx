@@ -43,11 +43,56 @@ export function TestModelSection() {
     }
   }
 
-  const handleSubmitAudio = (e: React.FormEvent) => {
+  const [isProcessing, setIsProcessing] = useState(false)
+  const [predictionResult, setPredictionResult] = useState<any>(null)
+
+  const handleSubmitAudio = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (file) {
-      // TODO: Implement audio analysis
-      alert("Audio analysis coming soon! We'll analyze your tractor's engine sound for potential issues.")
+    if (!file) return
+
+    setIsProcessing(true)
+    setPredictionResult(null)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const response = await fetch('https://tractorcare-backend.onrender.com/demo/quick-test', {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }))
+        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`)
+      }
+
+      const result = await response.json()
+      setPredictionResult(result)
+      
+      // Add result message to chat
+      const resultMessage = result.interpretation 
+        ? `${result.interpretation.message}. ${result.interpretation.recommendation}`
+        : `Prediction: ${result.prediction?.class || 'Unknown'} (Confidence: ${(result.prediction?.confidence || 0) * 100}%)`
+      
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: resultMessage,
+        },
+      ])
+    } catch (error: any) {
+      const errorMessage = error.message || 'Failed to analyze audio. Please try again.'
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: `❌ Error: ${errorMessage}`,
+        },
+      ])
+    } finally {
+      setIsProcessing(false)
     }
   }
 
@@ -124,10 +169,36 @@ export function TestModelSection() {
                     type="submit"
                     size="lg"
                     className="w-full text-base bg-primary hover:bg-primary/90 text-white"
-                    disabled={!file}
+                    disabled={!file || isProcessing}
                   >
-                    Predict Tractor Health
+                    {isProcessing ? "Analyzing..." : "Predict Tractor Health"}
                   </Button>
+                  
+                  {predictionResult && (
+                    <div className="mt-4 p-4 rounded-lg bg-[#1a4d3a] border border-primary/30">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-2xl ${
+                            predictionResult.interpretation?.severity === 'critical' ? 'text-red-500' :
+                            predictionResult.interpretation?.severity === 'high' ? 'text-orange-500' :
+                            predictionResult.interpretation?.severity === 'medium' ? 'text-yellow-500' :
+                            'text-green-500'
+                          }`}>
+                            {predictionResult.interpretation?.severity === 'critical' ? '🔴' :
+                             predictionResult.interpretation?.severity === 'high' ? '🟠' :
+                             predictionResult.interpretation?.severity === 'medium' ? '🟡' : '✅'}
+                          </span>
+                          <h4 className="font-semibold text-white">{predictionResult.interpretation?.message}</h4>
+                        </div>
+                        <p className="text-sm text-gray-300">{predictionResult.interpretation?.recommendation}</p>
+                        <div className="text-xs text-gray-400 space-y-1">
+                          <p>Confidence: {(predictionResult.prediction?.confidence * 100).toFixed(1)}%</p>
+                          <p>Anomaly Score: {(predictionResult.prediction?.anomaly_score * 100).toFixed(1)}%</p>
+                          <p>Duration: {predictionResult.audio_info?.duration_seconds}s</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </form>
               </CardContent>
             </Card>

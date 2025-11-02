@@ -1,6 +1,6 @@
 """
 Core Configuration
-Handles environment variables and settings
+Manages environment variables and application settings
 """
 
 from pydantic_settings import BaseSettings
@@ -9,57 +9,57 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    """Application settings from environment variables"""
+    """Application settings loaded from environment variables"""
     
-    # MongoDB
     MONGO_URL: str
     DATABASE_NAME: str = "tractorcare_db"
     
-    # API Configuration
     API_VERSION: str = "v1"
     API_TITLE: str = "TractorCare API"
     API_DESCRIPTION: str = "Predictive Maintenance System for Tractors"
     DEBUG: bool = True
     
-    # Security
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 43200  # 30 days
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 43200
     
-    # CORS
-    ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:8080"
+    ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:8080,https://tractorcare.onrender.com,https://tractorcare-backend.onrender.com"
     
     @property
     def allowed_origins_list(self) -> List[str]:
-        return [origin.strip() for origin in self.ALLOWED_ORIGINS.split(",")]
+        """Returns list of allowed CORS origins based on environment"""
+        origins = [origin.strip() for origin in self.ALLOWED_ORIGINS.split(",") if origin.strip()]
+        
+        if self.ENVIRONMENT == "production":
+            return origins
+        
+        dev_origins = ["http://localhost:3000", "http://localhost:8080", "http://127.0.0.1:3000"]
+        return list(set(origins + dev_origins))
     
-    # File Upload
     MAX_AUDIO_SIZE_MB: int = 10
     ALLOWED_AUDIO_FORMATS: str = ".wav,.mp3,.m4a,.aac"
     
     @property
     def allowed_formats_list(self) -> List[str]:
+        """Returns list of allowed audio file formats"""
         return [fmt.strip() for fmt in self.ALLOWED_AUDIO_FORMATS.split(",")]
     
     @property
     def max_audio_size_bytes(self) -> int:
+        """Returns maximum audio file size in bytes"""
         return self.MAX_AUDIO_SIZE_MB * 1024 * 1024
     
-    # Audio Processing
     SAMPLE_RATE: int = 22050
     AUDIO_DURATION_SECONDS: int = 10
     
-    # ML Models
     ML_MODEL_API_URL: str = "http://localhost:5000"
     ML_MODEL_TIMEOUT: int = 30
-    MODEL_GDRIVE_ID: Optional[str] = None  # Google Drive ID for model download
-    ML_MODEL_PATH: Optional[str] = None    # Local path to saved model
+    MODEL_GDRIVE_ID: Optional[str] = None
+    ML_MODEL_PATH: Optional[str] = None
     
-    # Logging
     LOG_LEVEL: str = "INFO"
     LOG_FILE: str = "tractorcare.log"
     
-    # Environment
     ENVIRONMENT: str = "development"
     
     class Config:
@@ -69,12 +69,10 @@ class Settings(BaseSettings):
 
 @lru_cache()
 def get_settings() -> Settings:
-    """Get cached settings instance"""
+    """Returns cached settings instance"""
     return Settings()
 
 
-# Maintenance schedules data source
-# This would typically be in a separate file or database
 MAINTENANCE_SCHEDULES = {
     "MF_240": {
         "model": "MF_240",

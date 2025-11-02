@@ -5,7 +5,7 @@ import '../models/tractor.dart';
 import '../services/api_service.dart';
 
 class TractorProvider with ChangeNotifier {
-  final ApiService _api = ApiService();
+  final ApiService _api = ApiService(); // Now using singleton
 
   List<Tractor> _tractors = [];
   Tractor? _selectedTractor;
@@ -57,7 +57,18 @@ class TractorProvider with ChangeNotifier {
       notifyListeners();
       return true;
     } catch (e) {
-      _setError(e.toString());
+      String errorMessage = e.toString();
+      
+      // Handle specific authentication errors
+      if (errorMessage.contains('Authentication failed') || 
+          errorMessage.contains('Not authenticated') ||
+          errorMessage.contains('401')) {
+        errorMessage = 'Please login again to continue';
+      } else if (errorMessage.contains('403')) {
+        errorMessage = 'You are not authorized to create tractors';
+      }
+      
+      _setError(errorMessage);
       _setLoading(false);
       return false;
     }

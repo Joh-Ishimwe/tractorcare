@@ -3,10 +3,11 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user.dart';
+import '../config/app_config.dart';
 
 class StorageService {
-  static const String _keyToken = 'auth_token';
-  static const String _keyUser = 'current_user';
+  static const String _keyToken = AppConfig.tokenKey;
+  static const String _keyUser = AppConfig.userKey;
   static const String _keyOnboarding = 'onboarding_complete';
 
   // Get SharedPreferences instance

@@ -43,10 +43,15 @@ class _MaintenanceListScreenState extends State<MaintenanceListScreen>
     await tractorProvider.fetchTractors();
     
     if (tractorProvider.tractors.isNotEmpty && _selectedTractorId == null) {
-      setState(() {
-        _selectedTractorId = tractorProvider.tractors.first.id;
+      // Use tractor_id (like "T005") not database id
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (mounted) {
+          setState(() {
+            _selectedTractorId = tractorProvider.tractors.first.tractorId;
+          });
+          await _loadMaintenance();
+        }
       });
-      await _loadMaintenance();
     }
   }
 
@@ -202,7 +207,7 @@ class _MaintenanceListScreenState extends State<MaintenanceListScreen>
                     icon: const Icon(Icons.arrow_drop_down),
                     items: provider.tractors.map((Tractor tractor) {
                       return DropdownMenuItem<String>(
-                        value: tractor.id,
+                        value: tractor.tractorId, // Use tractor_id not database id
                         child: Row(
                           children: [
                             Text(tractor.statusIcon),

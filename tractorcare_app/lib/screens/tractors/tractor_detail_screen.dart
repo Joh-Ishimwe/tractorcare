@@ -31,7 +31,8 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
     super.didChangeDependencies();
     if (_tractorId == null) {
       _tractorId = ModalRoute.of(context)!.settings.arguments as String;
-      _loadData();
+      // Use post-frame callback to avoid setState during build
+      WidgetsBinding.instance.addPostFrameCallback((_) => _loadData());
     }
   }
 
@@ -41,17 +42,42 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
     final tractorProvider = Provider.of<TractorProvider>(context, listen: false);
     final audioProvider = Provider.of<AudioProvider>(context, listen: false);
     
-    await tractorProvider.getTractor(_tractorId!);
-    await audioProvider.fetchPredictions(_tractorId!, limit: 5);
-    
-    // Load usage statistics
     try {
-      final stats = await _apiService.getUsageStats(_tractorId!);
-      setState(() {
-        _usageStats = stats;
-      });
+      // Find tractor in list first to get the actual tractor_id
+      Tractor? tractor;
+      if (_tractorId != null) {
+        // Check if it's already in the list
+        tractor = tractorProvider.tractors.firstWhere(
+          (t) => t.id == _tractorId || t.tractorId == _tractorId,
+          orElse: () => tractorProvider.tractors.first,
+        );
+      }
+      
+      // Use tractor_id (like "T005") not database id for API calls
+      final actualTractorId = tractor?.tractorId ?? _tractorId!;
+      
+      // Fetch tractor details
+      await tractorProvider.getTractor(actualTractorId);
+      
+      // Fetch predictions using tractor_id
+      await audioProvider.fetchPredictions(actualTractorId, limit: 5);
+      
+      // Load usage statistics using tractor_id
+      try {
+        final stats = await _apiService.getUsageStats(actualTractorId);
+        setState(() {
+          _usageStats = stats;
+        });
+      } catch (e) {
+        print('Error loading usage stats: $e');
+      }
     } catch (e) {
-      print('Error loading usage stats: $e');
+      print('Error loading tractor data: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load tractor: $e')),
+        );
+      }
     }
     
     setState(() => _isLoading = false);
@@ -830,25 +856,46 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
             const SizedBox(height: 8),
             
             // Simple usage history list (last 5 days)
-            FutureBuilder<List<dynamic>>(
-              future: _apiService.getUsageHistory(_tractorId!, days: 5),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                final history = snapshot.data!;
+            Consumer<TractorProvider>(
+              builder: (context, tractorProvider, child) {
+                // Get actual tractor_id for API call
+                final tractor = tractorProvider.tractors.firstWhere(
+                  (t) => t.id == _tractorId || t.tractorId == _tractorId,
+                  orElse: () => tractorProvider.selectedTractor ?? tractorProvider.tractors.first,
+                );
+                final actualTractorId = tractor.tractorId;
                 
-                if (history.isEmpty) {
-                  return const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(32),
-                      child: Text('No usage logged yet'),
-                    ),
-                  );
-                }
+                return FutureBuilder<List<dynamic>>(
+                  future: _apiService.getUsageHistory(actualTractorId, days: 5),
+                  builder: (context, snapshot) {
+                    if (snapshot.hasError) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Text(
+                            'Error: ${snapshot.error}',
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                        ),
+                      );
+                    }
+                    
+                    if (!snapshot.hasData) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
 
-                return Column(
+                    final history = snapshot.data!;
+                    
+                    if (history.isEmpty) {
+                      return const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(32),
+                          child: Text('No usage logged yet'),
+                        ),
+                      );
+                    }
+
+                    return Column(
                   children: history.map<Widget>((record) {
                     final date = DateTime.parse(record['date']);
                     final hoursUsed = record['hours_used'];
@@ -859,16 +906,18 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                         '${date.day}/${date.month}/${date.year}',
                         style: const TextStyle(fontWeight: FontWeight.w500),
                       ),
-                      subtitle: Text('${hoursUsed.toStringAsFixed(1)} hours used'),
-                      trailing: Text(
-                        '${record['end_hours']} hrs',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey[700],
-                        ),
-                      ),
+                          subtitle: Text('${hoursUsed.toStringAsFixed(1)} hours used'),
+                          trailing: Text(
+                            '${(record['end_hours'] as num).toStringAsFixed(0)} hrs',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.grey[700],
+                            ),
+                          ),
+                        );
+                      }).toList(),
                     );
-                  }).toList(),
+                  },
                 );
               },
             ),

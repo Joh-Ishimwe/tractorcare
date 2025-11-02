@@ -30,14 +30,23 @@ class AuthProvider with ChangeNotifier {
       final isLoggedIn = await _authService.checkAuth();
       if (isLoggedIn) {
         _currentUser = _authService.currentUser;
+      } else {
+        _currentUser = null;
       }
       _setLoading(false);
       return isLoggedIn;
     } catch (e) {
       _setError(e.toString());
+      _currentUser = null;
       _setLoading(false);
       return false;
     }
+  }
+
+  // Force refresh authentication state
+  Future<void> refreshAuth() async {
+    await checkAuth();
+    notifyListeners();
   }
 
   // Register new user

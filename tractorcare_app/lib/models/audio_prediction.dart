@@ -120,6 +120,7 @@ class AudioPrediction {
 
   // Get status icon
   String get statusIcon {
+    if (predictionClass == PredictionClass.unknown) return '❓';
     if (predictionClass == PredictionClass.normal) return '✅';
     if (anomalyScore < 0.6) return '⚠️';
     return '🔴';
@@ -127,6 +128,7 @@ class AudioPrediction {
 
   // Get status text
   String get statusText {
+    if (predictionClass == PredictionClass.unknown) return 'Unknown Sound';
     if (predictionClass == PredictionClass.normal) return 'Normal';
     if (anomalyScore < 0.6) return 'Minor Issue';
     if (anomalyScore < 0.75) return 'Warning';
@@ -143,7 +145,9 @@ class AudioPrediction {
 
   // Get interpretation message
   String get interpretation {
-    if (predictionClass == PredictionClass.normal) {
+    if (predictionClass == PredictionClass.unknown) {
+      return 'Audio does not appear to be from a tractor. Please record the tractor engine sound directly.';
+    } else if (predictionClass == PredictionClass.normal) {
       return 'Sound appears normal';
     } else if (anomalyScore < 0.6) {
       return 'Minor irregularity detected';
@@ -158,7 +162,9 @@ class AudioPrediction {
 
   // Get recommendation
   String get recommendation {
-    if (predictionClass == PredictionClass.normal) {
+    if (predictionClass == PredictionClass.unknown) {
+      return 'Please record the tractor engine sound directly in a quiet environment. Ensure the microphone is close to the engine and avoid background noise, speech, or music.';
+    } else if (predictionClass == PredictionClass.normal) {
       return 'No immediate concerns detected';
     } else if (anomalyScore < 0.6) {
       return 'Monitor the equipment, but no urgent action needed';
@@ -173,6 +179,7 @@ class AudioPrediction {
 
   // Get severity level
   String get severity {
+    if (predictionClass == PredictionClass.unknown) return 'unknown';
     if (predictionClass == PredictionClass.normal) return 'low';
     if (anomalyScore < 0.6) return 'low';
     if (anomalyScore < 0.75) return 'medium';

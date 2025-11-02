@@ -3,10 +3,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/tractor_provider.dart';
+import '../../providers/auth_provider.dart';
 import '../../config/colors.dart';
 
 class AddTractorScreen extends StatefulWidget {
-  const AddTractorScreen({Key? key}) : super(key: key);
+  const AddTractorScreen({super.key});
 
   @override
   State<AddTractorScreen> createState() => _AddTractorScreenState();
@@ -37,6 +38,20 @@ class _AddTractorScreenState extends State<AddTractorScreen> {
 
     setState(() => _isLoading = true);
 
+    // Check authentication first
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    if (!authProvider.isAuthenticated) {
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please login first to add a tractor'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      Navigator.pushReplacementNamed(context, '/login');
+      return;
+    }
+
     final tractorProvider = Provider.of<TractorProvider>(context, listen: false);
 
     final data = {
@@ -63,13 +78,47 @@ class _AddTractorScreenState extends State<AddTractorScreen> {
       );
       Navigator.pop(context);
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(tractorProvider.error ?? 'Failed to add tractor'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+      final errorMessage = tractorProvider.error ?? 'Failed to add tractor';
+      
+      // Check if it's an authentication error
+      if (errorMessage.contains('login again') || errorMessage.contains('Authentication')) {
+        _showAuthenticationErrorDialog();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMessage),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
     }
+  }
+
+  void _showAuthenticationErrorDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Authentication Required'),
+          content: const Text(
+            'Your session has expired. Please login again to continue adding tractors.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context); // Close dialog
+                Navigator.pushReplacementNamed(context, '/login');
+              },
+              child: const Text('Login'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override

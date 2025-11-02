@@ -1,7 +1,7 @@
 // lib/providers/audio_provider.dart
 
 import 'dart:io';
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import '../models/audio_prediction.dart';
 import '../services/api_service.dart';
 import '../services/audio_service.dart';
@@ -37,7 +37,7 @@ class AudioProvider with ChangeNotifier {
     }
   }
 
-  // Upload audio file
+  // Upload audio file (path-based, for mobile/desktop)
   Future<AudioPrediction?> uploadAudio(
     String filePath,
     String tractorId,
@@ -47,10 +47,64 @@ class AudioProvider with ChangeNotifier {
     _clearError();
 
     try {
-      final file = File(filePath);
-      
-      final prediction = await _api.uploadAudio(
-        audioFile: file,
+      // Check if we're on web - if so, get bytes first
+      if (kIsWeb || filePath.startsWith('blob:') || filePath.startsWith('http')) {
+        // Web platform or blob URL - use bytes
+        final bytes = await getRecordingBytes(filePath);
+        if (bytes == null) {
+          throw Exception('Failed to get audio bytes');
+        }
+        
+        // Extract filename from path
+        final filename = filePath.split('/').last;
+        
+        final prediction = await _api.uploadAudioBytes(
+          bytes: bytes,
+          filename: filename.isEmpty ? 'recording.wav' : filename,
+          tractorId: tractorId,
+          engineHours: engineHours,
+        );
+
+        _currentPrediction = prediction;
+        _predictions.insert(0, prediction);
+        _setLoading(false);
+        return prediction;
+      } else {
+        // Mobile/Desktop - use file path
+        final file = File(filePath);
+        
+        final prediction = await _api.uploadAudio(
+          audioFile: file,
+          tractorId: tractorId,
+          engineHours: engineHours,
+        );
+
+        _currentPrediction = prediction;
+        _predictions.insert(0, prediction);
+        _setLoading(false);
+        return prediction;
+      }
+    } catch (e) {
+      _setError(e.toString());
+      _setLoading(false);
+      return null;
+    }
+  }
+
+  // Upload audio file (bytes-based, for web)
+  Future<AudioPrediction?> uploadAudioBytes(
+    List<int> bytes,
+    String filename,
+    String tractorId,
+    double engineHours,
+  ) async {
+    _setLoading(true);
+    _clearError();
+
+    try {
+      final prediction = await _api.uploadAudioBytes(
+        bytes: bytes,
+        filename: filename,
         tractorId: tractorId,
         engineHours: engineHours,
       );
@@ -112,6 +166,11 @@ class AudioProvider with ChangeNotifier {
       notifyListeners();
       return null;
     }
+  }
+
+  // Get recording bytes (for web platform)
+  Future<List<int>?> getRecordingBytes(String pathOrBlobUrl) async {
+    return await _audioService.getRecordingBytes(pathOrBlobUrl);
   }
 
   // Cancel recording

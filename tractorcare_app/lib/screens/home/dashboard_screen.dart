@@ -5,10 +5,14 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/tractor_provider.dart';
 import '../../config/colors.dart';
+import '../../config/app_config.dart';
 import '../../widgets/bottom_nav.dart';
+import '../../widgets/api_connection_test.dart';
+import '../../widgets/auth_debug_widget.dart';
+import '../../widgets/debug_api_widget.dart';
 
 class DashboardScreen extends StatefulWidget {
-  const DashboardScreen({Key? key}) : super(key: key);
+  const DashboardScreen({super.key});
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -20,14 +24,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-    _loadData();
+    // Use post-frame callback to avoid calling setState during build
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadData());
   }
 
-
-
   Future<void> _loadData() async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final tractorProvider = Provider.of<TractorProvider>(context, listen: false);
-    await tractorProvider.fetchTractors();
+    
+    AppConfig.log('🏠 Dashboard loading data...');
+    AppConfig.log('🔐 User authenticated: ${authProvider.isAuthenticated}');
+    AppConfig.log('👤 Current user: ${authProvider.currentUser?.email}');
+    
+    // Ensure user is authenticated before fetching data
+    if (!authProvider.isAuthenticated) {
+      AppConfig.logError('❌ User not authenticated, redirecting to login');
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, '/login');
+        return;
+      }
+    }
+    
+    try {
+      AppConfig.log('📡 Fetching tractors from API...');
+      await tractorProvider.fetchTractors();
+      AppConfig.log('✅ Tractors fetched: ${tractorProvider.tractors.length}');
+    } catch (e) {
+      AppConfig.logError('❌ Failed to fetch tractors', e);
+    }
   }
 
   void _onNavTap(int index) {
@@ -60,17 +84,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        flexibleSpace: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [AppColors.gradientStart, AppColors.gradientEnd],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-        ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -78,53 +91,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'Welcome back,',
               style: TextStyle(
                 fontSize: 14,
-                color: AppColors.textOnPrimary.withOpacity(0.8),
-                fontWeight: FontWeight.w400,
+                color: AppColors.textSecondary,
+                fontWeight: FontWeight.normal,
               ),
             ),
             Text(
               user?.firstName ?? 'User',
               style: const TextStyle(
-                fontSize: 22,
+                fontSize: 20,
                 fontWeight: FontWeight.bold,
-                color: AppColors.textOnPrimary,
               ),
             ),
           ],
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.bar_chart_rounded, color: AppColors.textOnPrimary),
-            tooltip: 'View Analytics',
-            onPressed: () => Navigator.pushNamed(context, '/statistics'),
-          ),
-          Container(
-            margin: const EdgeInsets.only(right: 8),
-            child: IconButton(
-              icon: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  Icons.notifications_outlined,
-                  color: AppColors.textOnPrimary,
-                ),
-              ),
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Text('Notifications coming soon'),
-                    backgroundColor: AppColors.info,
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                );
-              },
-            ),
+            icon: const Icon(Icons.notifications_outlined),
+            onPressed: () {
+              // TODO: Show notifications
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Notifications coming soon')),
+              );
+            },
           ),
         ],
       ),
@@ -136,6 +124,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // API Connection Status (only in debug mode)
+              _buildApiStatus(),
+
+              // API Connection Test (debug mode only)
+              if (AppConfig.debugMode) const ApiConnectionTest(),
+
+              // Auth Debug Widget (debug mode only)
+              if (AppConfig.debugMode) const AuthDebugWidget(),
+
+              // API Debug Widget (debug mode only)
+              if (AppConfig.debugMode) const DebugApiWidget(),
+
               // Quick Stats
               _buildQuickStats(),
 
@@ -162,20 +162,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         onTap: _onNavTap,
       ),
     );
-  }
-
-  Color _getTractorStatusColor(dynamic status) {
-    // Handle different status types (enum or string)
-    String statusStr = status.toString().toLowerCase();
-    
-    if (statusStr.contains('good') || statusStr.contains('normal')) {
-      return AppColors.success;
-    } else if (statusStr.contains('warning') || statusStr.contains('medium')) {
-      return AppColors.warning;
-    } else if (statusStr.contains('critical') || statusStr.contains('high')) {
-      return AppColors.error;
-    }
-    return AppColors.textTertiary;
   }
 
   Widget _buildQuickStats() {
@@ -234,49 +220,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildStatCard(IconData icon, String value, String label, Color color) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.white, AppColors.surfaceElevated],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.shadow,
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
+    return Card(
       child: Padding(
-        padding: const EdgeInsets.all(20.0),
+        padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(icon, size: 28, color: color),
-            ),
-            const SizedBox(height: 12),
+            Icon(icon, size: 32, color: color),
+            const SizedBox(height: 8),
             Text(
               value,
               style: TextStyle(
-                fontSize: 28,
+                fontSize: 24,
                 fontWeight: FontWeight.bold,
                 color: color,
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             Text(
               label,
               style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
+                fontSize: 12,
                 color: AppColors.textSecondary,
               ),
               textAlign: TextAlign.center,
@@ -353,55 +316,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
     Color color,
     VoidCallback onTap,
   ) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.white, AppColors.surfaceElevated],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.shadow,
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(16),
-          child: Padding(
-            padding: const EdgeInsets.all(20.0),
-            child: Column(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [color.withOpacity(0.1), color.withOpacity(0.05)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(icon, size: 28, color: color),
+    return Card(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            children: [
+              Icon(icon, size: 32, color: color),
+              const SizedBox(height: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: color,
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: color,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
+                textAlign: TextAlign.center,
+              ),
+            ],
           ),
         ),
       ),
@@ -432,31 +366,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
         ),
         const SizedBox(height: 12),
-        Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Colors.white, AppColors.surfaceElevated],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.shadow,
-                blurRadius: 8,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
+        Card(
           child: Padding(
-            padding: const EdgeInsets.all(20.0),
+            padding: const EdgeInsets.all(16.0),
             child: Column(
               children: [
                 _buildActivityItem(
                   Icons.info_outline,
                   'No recent activity',
                   'Start by adding a tractor or running an audio test',
-                  AppColors.info,
+                  AppColors.textTertiary,
                 ),
               ],
             ),
@@ -475,23 +394,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Row(
       children: [
         Container(
-          width: 48,
-          height: 48,
+          width: 40,
+          height: 40,
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [color.withOpacity(0.15), color.withOpacity(0.05)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: color.withOpacity(0.2),
-              width: 1,
-            ),
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
           ),
-          child: Icon(icon, color: color, size: 22),
+          child: Icon(icon, color: color, size: 20),
         ),
-        const SizedBox(width: 16),
+        const SizedBox(width: 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -499,16 +410,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Text(
                 title,
                 style: const TextStyle(
-                  fontSize: 15,
+                  fontSize: 14,
                   fontWeight: FontWeight.w600,
                   color: AppColors.textPrimary,
                 ),
               ),
-              const SizedBox(height: 2),
               Text(
                 subtitle,
                 style: const TextStyle(
-                  fontSize: 13,
+                  fontSize: 12,
                   color: AppColors.textSecondary,
                 ),
               ),
@@ -523,79 +433,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Consumer<TractorProvider>(
       builder: (context, provider, child) {
         if (provider.tractors.isEmpty) {
-          return Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Colors.white, AppColors.surfaceElevated],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.shadow,
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
+          return Card(
             child: Padding(
-              padding: const EdgeInsets.all(32.0),
+              padding: const EdgeInsets.all(40.0),
               child: Column(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [AppColors.primary.withOpacity(0.1), AppColors.primary.withOpacity(0.05)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Icon(
-                      Icons.agriculture_outlined,
-                      size: 48,
-                      color: AppColors.primary,
-                    ),
+                  Icon(
+                    Icons.agriculture_outlined,
+                    size: 64,
+                    color: AppColors.textDisabled,
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 16),
                   const Text(
                     'No Tractors Yet',
                     style: TextStyle(
-                      fontSize: 20,
+                      fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: AppColors.textPrimary,
+                      color: AppColors.textSecondary,
                     ),
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    'Add your first tractor to get started with monitoring and maintenance',
+                    'Add your first tractor to get started',
                     style: TextStyle(
                       fontSize: 14,
-                      color: AppColors.textSecondary,
+                      color: AppColors.textTertiary,
                     ),
-                    textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 24),
                   ElevatedButton.icon(
                     onPressed: () => Navigator.pushNamed(context, '/add-tractor'),
-                    icon: const Icon(Icons.add, color: Colors.white),
-                    label: const Text(
-                      'Add Your First Tractor',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
-                      ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      elevation: 2,
-                    ),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add Tractor'),
                   ),
                 ],
               ),
@@ -625,96 +494,75 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
             const SizedBox(height: 12),
             ...provider.tractors.take(3).map((tractor) {
-              return Container(
-                margin: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Colors.white, AppColors.surfaceElevated],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
+              return Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                child: ListTile(
+                  leading: Text(
+                    tractor.statusIcon,
+                    style: const TextStyle(fontSize: 32),
                   ),
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.shadow,
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: () {
-                      Navigator.pushNamed(
-                        context,
-                        '/tractor-detail',
-                        arguments: tractor.id,
-                      );
-                    },
-                    borderRadius: BorderRadius.circular(16),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: _getTractorStatusColor(tractor.status).withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              tractor.statusIcon,
-                              style: const TextStyle(fontSize: 24),
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  tractor.tractorId,
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppColors.textPrimary,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  tractor.model,
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    color: AppColors.textSecondary,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: AppColors.primary.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: const Icon(
-                              Icons.chevron_right,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                  title: Text(tractor.tractorId),
+                  subtitle: Text(tractor.model),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {
+                    Navigator.pushNamed(
+                      context,
+                      '/tractor-detail',
+                      arguments: tractor.id,
+                    );
+                  },
                 ),
               );
-            }).toList(),
+            }),
           ],
         );
       },
     );
   }
 
-
+  // API Connection Status Widget
+  Widget _buildApiStatus() {
+    if (!AppConfig.debugMode) return const SizedBox.shrink();
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppConfig.isProduction ? Colors.green[100] : Colors.orange[100],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: AppConfig.isProduction ? Colors.green : Colors.orange,
+          width: 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            AppConfig.isProduction ? Icons.cloud_done : Icons.construction,
+            color: AppConfig.isProduction ? Colors.green[700] : Colors.orange[700],
+            size: 20,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              AppConfig.apiStatus,
+              style: TextStyle(
+                color: AppConfig.isProduction ? Colors.green[700] : Colors.orange[700],
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          Text(
+            AppConfig.isProduction ? 'LIVE' : 'DEV',
+            style: TextStyle(
+              color: AppConfig.isProduction ? Colors.green[700] : Colors.orange[700],
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

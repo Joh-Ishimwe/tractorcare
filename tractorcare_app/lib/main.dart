@@ -5,17 +5,19 @@ import 'package:provider/provider.dart';
 
 import 'config/routes.dart';
 import 'config/theme.dart';
+import 'config/app_config.dart';
 import 'providers/auth_provider.dart';
 import 'providers/tractor_provider.dart';
 import 'providers/audio_provider.dart';
-import 'screens/auth/splash_screen.dart';
 
 void main() {
+  // Initialize app with API status logging
+  AppConfig.initialize();
   runApp(const TractorCareApp());
 }
 
 class TractorCareApp extends StatelessWidget {
-  const TractorCareApp({Key? key}) : super(key: key);
+  const TractorCareApp({super.key});
 
   @override
   Widget build(BuildContext context) {

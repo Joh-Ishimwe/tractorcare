@@ -1,6 +1,6 @@
 """
 TractorCare FastAPI Main Application
-Production-ready with all routes + ML Service initialization
+Production-ready backend with all routes and ML service initialization
 """
 
 from fastapi import FastAPI, Request
@@ -11,8 +11,8 @@ import logging
 from app.core.config import get_settings
 from app.core.database import Database
 from app.routes import usage_tracking
+from app.middleware.security import SecurityHeadersMiddleware
 
-# Setup logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -24,52 +24,58 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Lifecycle events for FastAPI"""
-    # Startup
+    """Application lifecycle management"""
     logger.info("Starting TractorCare API...")
     
-    # Initialize database
     await Database.connect_db()
     await Database.seed_maintenance_schedules()
     
-    # ML Service is initialized automatically when audio routes are imported
-    # (MLService() is called in app/routes/audio.py)
     logger.info("✅ ML Service initialized via routes")
-    
     logger.info("TractorCare API started successfully")
     
     yield
     
-    # Shutdown
     logger.info("Shutting down TractorCare API...")
     await Database.close_db()
     logger.info("TractorCare API shutdown complete")
 
 
-# Create FastAPI app
 app = FastAPI(
     title=settings.API_TITLE,
     description=settings.API_DESCRIPTION,
     version=settings.API_VERSION,
     lifespan=lifespan,
-    docs_url="/docs",          
-    redoc_url="/redoc",         
-    openapi_url="/openapi.json" 
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json"
 )
 
-# CORS middleware
+app.add_middleware(SecurityHeadersMiddleware)
+
+allowed_origins = settings.allowed_origins_list
+logger.info(f"🌐 Allowed CORS origins: {allowed_origins}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  
+    allow_origins=allowed_origins if allowed_origins else ["*"],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=[
+        "Content-Type",
+        "Authorization",
+        "Accept",
+        "Origin",
+        "X-Requested-With",
+        "X-CSRF-Token",
+    ],
+    expose_headers=["Content-Type", "Authorization"],
+    max_age=3600,
 )
 
-# Global exception handler
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """Handle all uncaught exceptions"""
+    """Global exception handler for uncaught errors"""
     logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
     return JSONResponse(
         status_code=500,
@@ -80,10 +86,9 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-# Health check endpoint
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
+    """Health check endpoint for monitoring"""
     return {
         "status": "healthy",
         "version": settings.API_VERSION,
@@ -91,10 +96,9 @@ async def health_check():
     }
 
 
-# Root endpoint
 @app.get("/")
 async def root():
-    """Root endpoint"""
+    """Root API endpoint"""
     return {
         "message": "TractorCare API",
         "version": settings.API_VERSION,
@@ -108,7 +112,6 @@ async def root():
     }
 
 
-# Import and include routers
 from app.routes import auth, tractors, maintenance, audio, statistics, baseline, demo
 
 app.include_router(

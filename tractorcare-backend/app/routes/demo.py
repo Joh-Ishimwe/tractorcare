@@ -1,7 +1,6 @@
 """
-Public Demo Routes - No Authentication Required
-For website visitors to test the model
-File: app/routes/demo.py
+Public Demo Routes
+No authentication required - for website visitors to test the model
 """
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, status
@@ -12,18 +11,16 @@ import time
 import logging
 import librosa
 import uuid
-
 from app.services.ml_service import ml_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Create demo upload directory
 DEMO_DIR = Path("uploads/demo")
 DEMO_DIR.mkdir(parents=True, exist_ok=True)
 
-# Supported audio formats
 SUPPORTED_FORMATS = {'.wav', '.flac', '.mp3', '.ogg'}
+MAX_FILE_SIZE_MB = 10
 
 
 @router.post("/quick-test")
@@ -31,26 +28,16 @@ async def quick_test_audio(
     file: UploadFile = File(..., description="Audio file (.wav, .flac, .mp3, .ogg)")
 ):
     """
-    🎯 PUBLIC DEMO ENDPOINT - No authentication required
+    Public demo endpoint for audio anomaly detection (no auth required)
     
-    Test the tractor audio anomaly detection model without signing up.
-    
-    **Perfect for:**
-    - Website visitors trying the product
-    - Quick model testing
-    
-    **Limitations:**
+    Limitations:
     - No baseline comparison (uses ResNet only)
     - No history tracking
     - Files deleted after analysis
-    
-    **Supported formats:** .wav, .flac, .mp3, .ogg
     """
-    
     start_time = time.time()
     
     try:
-        # Validate file format
         file_ext = os.path.splitext(file.filename)[1].lower()
         
         if file_ext not in SUPPORTED_FORMATS:
@@ -59,45 +46,41 @@ async def quick_test_audio(
                 detail=f"Audio format '{file_ext}' not supported. Please use: {', '.join(sorted(SUPPORTED_FORMATS))}"
             )
         
-        # Check file size (max 10MB for demo)
         content = await file.read()
         file_size = len(content)
         
-        if file_size > 10 * 1024 * 1024:  # 10MB
+        if file_size > MAX_FILE_SIZE_MB * 1024 * 1024:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="File too large. Maximum size: 10MB"
+                detail=f"File too large. Maximum size: {MAX_FILE_SIZE_MB}MB"
             )
         
-        # Save file with unique ID
         demo_id = str(uuid.uuid4())[:8]
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         filename = f"demo_{timestamp}_{demo_id}{file_ext}"
         file_path = DEMO_DIR / filename
         
-        logger.info(f"📁 Demo upload: {filename} ({file_size / 1024:.2f} KB)")
+        logger.info(f"Demo upload: {filename} ({file_size / 1024:.2f} KB)")
         
         with open(file_path, "wb") as f:
             f.write(content)
         
-        # Get audio metadata
         try:
             y, sr = librosa.load(str(file_path), duration=None)
             duration = float(len(y) / sr)
             sample_rate = int(sr)
             
             if duration > 30.0:
-                logger.warning(f"⚠️  Audio too long: {duration:.1f}s, using first 30s")
+                logger.warning(f"Audio too long: {duration:.1f}s, using first 30s")
                 duration = 30.0
             
-            logger.info(f"🎵 Audio: {duration:.2f}s @ {sample_rate}Hz")
+            logger.info(f"Audio: {duration:.2f}s @ {sample_rate}Hz")
         except Exception as e:
-            logger.warning(f"⚠️  Could not read audio metadata: {e}")
+            logger.warning(f"Could not read audio metadata: {e}")
             duration = 10.0
             sample_rate = 16000
         
-        # Make prediction
-        logger.info("🤖 Running demo prediction...")
+        logger.info("Running demo prediction...")
         prediction_start = time.time()
         
         prediction_result = await ml_service.predict_audio(
@@ -106,22 +89,18 @@ async def quick_test_audio(
         )
         
         processing_time = (time.time() - prediction_start) * 1000
-        total_time = (time.time() - start_time) * 1000
         
-        # Clean up file immediately
         try:
             os.remove(file_path)
-            logger.info(f"🗑️  Cleaned up demo file: {filename}")
+            logger.info(f"Cleaned up demo file: {filename}")
         except Exception as e:
-            logger.warning(f"⚠️  Could not delete demo file: {e}")
+            logger.warning(f"Could not delete demo file: {e}")
         
-        # Get prediction details
         prediction_class = prediction_result["prediction_class"].lower()
         confidence = prediction_result["confidence"]
         anomaly_score = prediction_result.get("anomaly_score", 0.0)
         anomaly_type = prediction_result.get("anomaly_type", "unknown")
         
-        # Create user-friendly interpretation
         if prediction_class == "normal":
             interpretation = "✅ Sound appears normal"
             recommendation = "No immediate concerns detected in the audio"
@@ -143,14 +122,11 @@ async def quick_test_audio(
             recommendation = "Immediate inspection recommended"
             severity = "critical"
         
-        # Log result
         logger.info(
-            f"✅ Demo prediction: {prediction_class} "
-            f"(confidence: {confidence:.2%}, "
-            f"processing: {processing_time:.0f}ms)"
+            f"Demo prediction: {prediction_class} "
+            f"(confidence: {confidence:.2%}, processing: {processing_time:.0f}ms)"
         )
         
-        # Return comprehensive demo response
         return {
             "success": True,
             
