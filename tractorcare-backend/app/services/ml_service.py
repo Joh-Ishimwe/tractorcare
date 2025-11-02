@@ -125,6 +125,9 @@ class MLService:
                 duration=self.CONFIG["duration"]
             )
             
+            # Log audio file info
+            logger.info(f"🎵 Loaded audio: {len(audio)} samples @ {sr}Hz, duration: {len(audio)/sr:.2f}s")
+            
             # Extract MFCCs
             mfcc = librosa.feature.mfcc(
                 y=audio,
@@ -132,13 +135,17 @@ class MLService:
                 n_mfcc=self.CONFIG["n_mfcc"]
             )
             
+            logger.info(f"🎵 Raw MFCC shape: {mfcc.shape}")
+            
             # Pad or truncate to fixed length
             max_len = self.CONFIG["max_len"]
             if mfcc.shape[1] < max_len:
                 pad_width = max_len - mfcc.shape[1]
                 mfcc = np.pad(mfcc, pad_width=((0, 0), (0, pad_width)), mode='constant')
+                logger.info(f"🔧 Padded MFCC from {mfcc.shape[1] - pad_width} to {mfcc.shape[1]} timesteps")
             else:
                 mfcc = mfcc[:, :max_len]
+                logger.info(f"✂️ Truncated MFCC to {max_len} timesteps")
             
             return mfcc
             
@@ -159,18 +166,28 @@ class MLService:
         """
         try:
             logger.info(f"🔮 Making prediction for tractor: {tractor_id}")
+            logger.info(f"📁 Audio file: {audio_path}")
             
             if self.model is None:
                 raise ValueError("Model not loaded. Please check Google Drive connection.")
             
             # Extract MFCC features
             mfcc = self.extract_mfcc_features(audio_path)
+            logger.info(f"🎵 MFCC shape: {mfcc.shape}")
+            logger.info(f"🔢 MFCC stats: min={mfcc.min():.3f}, max={mfcc.max():.3f}, mean={mfcc.mean():.3f}")
             
             # Prepare input (add batch and channel dimensions)
             X = np.expand_dims(np.expand_dims(mfcc, 0), -1)
+            logger.info(f"📊 Model input shape: {X.shape}")
             
             # Predict
-            probability = self.model.predict(X, verbose=0)[0][0]
+            prediction_output = self.model.predict(X, verbose=0)
+            logger.info(f"🎯 Raw model output shape: {prediction_output.shape}")
+            logger.info(f"🎯 Raw model output: {prediction_output}")
+            
+            probability = prediction_output[0][0]
+            logger.info(f"🎲 Extracted probability: {probability}")
+            logger.info(f"🎲 Probability type: {type(probability)}")
             is_anomaly = probability > 0.5
             confidence = probability if is_anomaly else 1 - probability
             
@@ -210,7 +227,7 @@ class MLService:
     
     def get_model_info(self) -> dict:
         """Get information about the loaded model"""
-        return {
+        model_info = {
             "model_name": "ResNet CNN Transfer Learning",
             "model_loaded": self.model is not None,
             "model_type": "Deep Learning CNN",
@@ -237,6 +254,52 @@ class MLService:
             "source": "Google Drive",
             "file_id": self.RESNET_DRIVE_ID
         }
+        
+        # Add model details if loaded
+        if self.model is not None:
+            try:
+                model_info["model_details"] = {
+                    "input_shape": str(self.model.input_shape),
+                    "output_shape": str(self.model.output_shape),
+                    "total_params": self.model.count_params(),
+                    "layers": len(self.model.layers)
+                }
+            except Exception as e:
+                model_info["model_details"] = {"error": str(e)}
+        
+        return model_info
+    
+    def test_model_sanity(self) -> dict:
+        """Test if model gives different outputs for different inputs"""
+        if self.model is None:
+            return {"error": "Model not loaded"}
+        
+        try:
+            # Create test inputs - zeros vs random noise
+            input_shape = (1, self.CONFIG["n_mfcc"], self.CONFIG["max_len"], 1)
+            
+            zeros_input = np.zeros(input_shape)
+            random_input = np.random.randn(*input_shape)
+            uniform_input = np.ones(input_shape)
+            
+            # Get predictions
+            pred_zeros = self.model.predict(zeros_input, verbose=0)[0][0]
+            pred_random = self.model.predict(random_input, verbose=0)[0][0] 
+            pred_uniform = self.model.predict(uniform_input, verbose=0)[0][0]
+            
+            return {
+                "test_passed": not (abs(pred_zeros - pred_random) < 0.01 and abs(pred_random - pred_uniform) < 0.01),
+                "predictions": {
+                    "zeros": float(pred_zeros),
+                    "random": float(pred_random), 
+                    "uniform": float(pred_uniform)
+                },
+                "variance": float(np.var([pred_zeros, pred_random, pred_uniform])),
+                "interpretation": "Model should give different outputs for different inputs"
+            }
+            
+        except Exception as e:
+            return {"error": str(e)}
 
 
 # Create a global instance
