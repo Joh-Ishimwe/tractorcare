@@ -19,13 +19,13 @@ logger = logging.getLogger(__name__)
 DEMO_DIR = Path("uploads/demo")
 DEMO_DIR.mkdir(parents=True, exist_ok=True)
 
-SUPPORTED_FORMATS = {'.wav', '.flac', '.mp3', '.ogg'}
+SUPPORTED_FORMATS = {'.wav', '.flac', '.mp3', '.ogg', '.m4a'}
 MAX_FILE_SIZE_MB = 10
 
 
 @router.post("/quick-test")
 async def quick_test_audio(
-    file: UploadFile = File(..., description="Audio file (.wav, .flac, .mp3, .ogg)")
+    file: UploadFile = File(..., description="Audio file (.wav, .flac, .mp3, .ogg, .m4a)")
 ):
     """
     Public demo endpoint for audio anomaly detection (no auth required)
