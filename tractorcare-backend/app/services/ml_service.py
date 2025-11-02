@@ -72,7 +72,7 @@ class MLService:
         try:
             logger.info(f"📥 Downloading from Google Drive: {output_path}")
             url = f"https://drive.google.com/uc?id={file_id}"
-            gdown.download(url, output_path, quiet=False, timeout=60)
+            gdown.download(url, output_path, quiet=False)
             logger.info(f"✅ Downloaded: {output_path}")
             return True
         except Exception as e:
