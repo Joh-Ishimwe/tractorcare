@@ -201,7 +201,7 @@ class AudioUploadResponse(BaseModel):
     prediction_id: str
     prediction_class: PredictionClass
     confidence: float
-    model_used: str
+    ml_model: str
     duration_seconds: float
     processing_time_ms: float
     recorded_at: datetime
@@ -223,7 +223,7 @@ class AudioPredictionResponse(BaseModel):
     anomaly_score: Optional[float] = None
     file_path: str  # ← Changed from audio_file_path to file_path
     recorded_at: datetime
-    model_used: str
+    ml_model: str
     duration_seconds: float
     baseline_comparison: Optional[dict] = None
     

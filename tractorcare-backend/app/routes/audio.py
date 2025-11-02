@@ -212,7 +212,7 @@ async def upload_audio(
             # Prediction
             prediction_class=prediction_class,
             confidence=final_confidence,
-            model_used=final_model,
+            ml_model=final_model,
             # Analysis metadata
             processing_time_ms=processing_time,
             sample_rate=sample_rate,
@@ -270,7 +270,7 @@ async def upload_audio(
             "file_path": audio_prediction.file_path,  # ← Changed from audio_file_path
             "recorded_at": audio_prediction.recorded_at,
             "filename": audio_prediction.filename,
-            "model_used": audio_prediction.model_used,
+            "ml_model": audio_prediction.ml_model,
             "duration_seconds": audio_prediction.duration_seconds
         }
         
@@ -346,7 +346,7 @@ async def get_predictions(
                 anomaly_score=pred.anomaly_score,
                 file_path=pred.file_path,  # ← Use file_path not audio_file_path
                 recorded_at=pred.recorded_at,
-                model_used=pred.model_used,
+                ml_model=pred.ml_model,
                 duration_seconds=pred.duration_seconds,
                 baseline_comparison=None  # Add if available
             ))
@@ -402,7 +402,7 @@ async def get_prediction(
             anomaly_score=prediction.anomaly_score,
             file_path=prediction.file_path,  # ← Use file_path not audio_file_path
             recorded_at=prediction.recorded_at,
-            model_used=prediction.model_used,
+            ml_model=prediction.ml_model,
             duration_seconds=prediction.duration_seconds,
             baseline_comparison=None  # Add if available
         )

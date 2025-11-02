@@ -13,7 +13,7 @@ class AudioPredictionResponse(BaseModel):
     
     # Make these optional
     filename: Optional[str] = None
-    model_used: Optional[str] = None
+    ml_model: Optional[str] = None
     duration_seconds: Optional[float] = None
     
     class Config:

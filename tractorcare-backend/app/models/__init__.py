@@ -275,7 +275,7 @@ class AudioPrediction(Document):
     prediction_class: PredictionClass
     confidence: float
     anomaly_score: Optional[float] = None
-    model_used: str
+    ml_model: str
     
     # Audio features
     features: Optional[AudioFeatures] = None

@@ -200,7 +200,7 @@ class MLService:
                 "anomaly_score": anomaly_score,
                 "anomaly_type": anomaly_type,
                 "tractor_id": tractor_id,
-                "model_used": "ResNet_Transfer_Learning",
+                "ml_model": "ResNet_Transfer_Learning",
                 "features_count": self.CONFIG["n_mfcc"] * self.CONFIG["max_len"]
             }
             
