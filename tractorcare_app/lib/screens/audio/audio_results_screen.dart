@@ -7,7 +7,7 @@ import '../../models/audio_prediction.dart';
 class AudioResultsScreen extends StatelessWidget {
   final AudioPrediction prediction;
 
-  const AudioResultsScreen({Key? key, required this.prediction}) : super(key: key);
+  const AudioResultsScreen({super.key, required this.prediction});
 
   @override
   Widget build(BuildContext context) {
@@ -296,7 +296,7 @@ class AudioResultsScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 16),
-            Container(
+            SizedBox(
               height: 150,
               child: BarChart(
                 BarChartData(
@@ -567,8 +567,6 @@ class AudioResultsScreen extends StatelessWidget {
         return Colors.orange;
       case 'medium':
         return Colors.yellow;
-      case 'unknown':
-        return Colors.grey;
       default:
         return Colors.green;
     }
@@ -582,8 +580,6 @@ class AudioResultsScreen extends StatelessWidget {
         return Icons.warning;
       case 'medium':
         return Icons.info;
-      case 'unknown':
-        return Icons.help_outline;
       default:
         return Icons.check_circle;
     }

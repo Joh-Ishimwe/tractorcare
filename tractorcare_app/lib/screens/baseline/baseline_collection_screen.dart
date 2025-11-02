@@ -4,14 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
 import '../../providers/audio_provider.dart';
-import '../../providers/tractor_provider.dart';
-import '../../services/api_service.dart';
 import '../../config/colors.dart';
 import '../../widgets/custom_button.dart';
 import '../../widgets/custom_card.dart';
 
 class BaselineCollectionScreen extends StatefulWidget {
-  const BaselineCollectionScreen({Key? key}) : super(key: key);
+  const BaselineCollectionScreen({super.key});
 
   @override
   State<BaselineCollectionScreen> createState() =>
@@ -19,64 +17,17 @@ class BaselineCollectionScreen extends StatefulWidget {
 }
 
 class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
-  String? _tractorId;
   int _currentSample = 0;
   final int _totalSamples = 5;
   bool _isRecording = false;
   int _recordingDuration = 0;
   Timer? _timer;
   final List<String> _recordedSamples = [];
-  Map<String, dynamic>? _baselineStatus;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     // Get tractor ID from route arguments
-    _tractorId = ModalRoute.of(context)?.settings.arguments as String?;
-    _loadBaselineStatus();
-  }
-
-  Future<void> _loadBaselineStatus() async {
-    if (_tractorId == null) return;
-    
-    // Check if _tractorId is database ID and convert to tractor_id
-    String actualTractorId = _tractorId!;
-    try {
-      final tractorProvider = Provider.of<TractorProvider>(context, listen: false);
-      await tractorProvider.fetchTractors();
-      
-      // Try to find tractor by id or tractorId
-      final tractor = tractorProvider.tractors.firstWhere(
-        (t) => t.id == _tractorId || t.tractorId == _tractorId,
-        orElse: () => tractorProvider.tractors.isNotEmpty ? tractorProvider.tractors.first : throw Exception('No tractors'),
-      );
-      actualTractorId = tractor.tractorId;
-    } catch (e) {
-      print('Warning: Could not resolve tractor ID, using as-is: $e');
-    }
-    
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!mounted) return;
-      
-      try {
-        final apiService = ApiService();
-        _baselineStatus = await apiService.getBaselineStatus(actualTractorId);
-        
-        // If baseline exists, show current status
-        if (_baselineStatus != null && _baselineStatus!['status'] == 'active') {
-          final samplesCollected = _baselineStatus!['samples_collected'] ?? 0;
-          if (samplesCollected > 0 && mounted) {
-            setState(() {
-              _currentSample = samplesCollected;
-            });
-          }
-        }
-      } catch (e) {
-        print('Error loading baseline status: $e');
-      }
-      if (mounted) {
-      }
-    });
   }
 
   @override
@@ -138,7 +89,7 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Sample ${_currentSample} recorded successfully!'),
+          content: Text('Sample $_currentSample recorded successfully!'),
           backgroundColor: AppColors.success,
         ),
       );
@@ -208,53 +159,6 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Baseline Status Card (if exists)
-            if (_baselineStatus != null && _baselineStatus!['status'] == 'active') ...[
-              CustomCard(
-                color: AppColors.success.withOpacity(0.1),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.check_circle, color: AppColors.success),
-                        const SizedBox(width: 8),
-                        const Text(
-                          'Baseline Already Set',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Samples collected: ${_baselineStatus!['samples_collected'] ?? 0}/$_totalSamples',
-                      style: const TextStyle(fontSize: 14),
-                    ),
-                    if (_baselineStatus!['created_at'] != null)
-                      Text(
-                        'Created: ${_baselineStatus!['created_at']}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    const SizedBox(height: 12),
-                    const Text(
-                      'You can continue collecting more samples to improve accuracy.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontStyle: FontStyle.italic,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-            ],
-            
             // Progress Card
             CustomCard(
               color: AppColors.primary.withOpacity(0.1),
@@ -449,7 +353,7 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
                     ],
                   ),
                 );
-              }).toList(),
+              }),
             ],
           ],
         ),
