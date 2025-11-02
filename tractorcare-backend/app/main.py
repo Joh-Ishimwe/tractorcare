@@ -98,14 +98,27 @@ async def health_check():
 
 @app.get("/")
 async def root():
-    """Root API endpoint"""
+    """Root API endpoint with ML model status"""
+    try:
+        from app.services.ml_service import ml_service
+        model_status = {
+            "loaded": ml_service.model is not None,
+            "info": "ResNet CNN Transfer Learning" if ml_service.model else "Loading..."
+        }
+    except Exception as e:
+        model_status = {
+            "loaded": False,
+            "error": str(e)
+        }
+    
     return {
         "message": "TractorCare API",
         "version": settings.API_VERSION,
         "docs": "/docs",
+        "model_status": model_status,
         "features": [
             "Audio Anomaly Detection (ResNet Transfer Learning)",
-            "Predictive Maintenance",
+            "Predictive Maintenance", 
             "Tractor Management",
             "User Authentication"
         ]

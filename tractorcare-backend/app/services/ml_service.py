@@ -44,7 +44,7 @@ class MLService:
     
     # Google Drive file ID for  model
     # RESNET_DRIVE_ID = "17OnJBfLt21PAbESv2-krhYZ0X2YbRcyc"
-    RESNET_DRIVE_ID = "1L3vX5YXBIgoDip_9NGIlF0zTN-qlOLW6"
+    RESNET_DRIVE_ID = "1afNUV4GBuUwYYzqECAJhjUsZFXDh3CqB"
     
     # ResNet model configuration
     CONFIG = {
@@ -69,15 +69,28 @@ class MLService:
     
     def _download_from_drive(self, file_id: str, output_path: str) -> bool:
         """Download file from Google Drive"""
-        try:
-            logger.info(f"📥 Downloading from Google Drive: {output_path}")
-            url = f"https://drive.google.com/uc?id={file_id}"
-            gdown.download(url, output_path, quiet=False)
-            logger.info(f"✅ Downloaded: {output_path}")
-            return True
-        except Exception as e:
-            logger.error(f"❌ Error downloading {output_path}: {e}")
-            return False
+        import time
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                logger.info(f"📥 Downloading from Google Drive (attempt {retry_count + 1}/{max_retries}): {output_path}")
+                url = f"https://drive.google.com/uc?id={file_id}"
+                gdown.download(url, output_path, quiet=False, timeout=300)
+                logger.info(f"✅ Downloaded: {output_path}")
+                return True
+            except Exception as e:
+                retry_count += 1
+                logger.error(f"❌ Error downloading {output_path} (attempt {retry_count}): {e}")
+                if retry_count < max_retries:
+                    wait_time = retry_count * 10  # 10s, 20s, 30s
+                    logger.info(f"⏳ Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"❌ Failed to download after {max_retries} attempts")
+                    
+        return False
     
     def _download_and_load_model(self):
         """Download and load ResNet transfer learning model"""
@@ -85,7 +98,7 @@ class MLService:
             logger.info("🔍 Checking for ResNet model...")
             
             # model_path = self.model_dir / "tractor_resnet_final.keras"
-            model_path = self.model_dir / "resnet_like_cnn.h5"
+            model_path = self.model_dir / "tractor_resnet_transfer.h5"
 
             
             # Download if not exists

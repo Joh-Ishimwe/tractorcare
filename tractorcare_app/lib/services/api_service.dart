@@ -652,7 +652,7 @@ class ApiService {
     
     try {
       final response = await http.post(
-        Uri.parse('$baseUrl/usage-tracking/$tractorId/log'),
+        Uri.parse('$baseUrl${AppConfig.usageEndpoint}/$tractorId/log'),
         headers: _getHeaders(),
         body: json.encode({
           'end_hours': endHours,
@@ -676,7 +676,7 @@ class ApiService {
   Future<Map<String, dynamic>> getUsageStats(String tractorId) async {
     try {
       final response = await http.get(
-        Uri.parse('$baseUrl/usage-tracking/$tractorId/stats'),
+        Uri.parse('$baseUrl${AppConfig.usageEndpoint}/$tractorId/stats'),
         headers: _getHeaders(),
       );
       
@@ -693,7 +693,7 @@ class ApiService {
   Future<List<dynamic>> getUsageHistory(String tractorId, {int days = 30}) async {
     try {
       final response = await http.get(
-        Uri.parse('$baseUrl/usage-tracking/$tractorId/history').replace(queryParameters: {
+        Uri.parse('$baseUrl${AppConfig.usageEndpoint}/$tractorId/history').replace(queryParameters: {
           'days': days.toString(),
         }),
         headers: _getHeaders(),
@@ -712,6 +712,60 @@ class ApiService {
 
   Future<Tractor> getTractorById(String tractorId) async {
     return getTractor(tractorId);
+  }
+
+  // ===== MAINTENANCE METHODS =====
+  
+  Future<List<dynamic>> getMaintenanceAlerts(String tractorId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl${AppConfig.maintenanceEndpoint}/$tractorId/alerts'),
+        headers: _getHeaders(),
+      );
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data is List ? data : [];
+      }
+      throw Exception('Failed to get maintenance alerts');
+    } catch (e) {
+      AppConfig.logError('Get maintenance alerts error', e);
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> getTractorSummary(String tractorId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl${AppConfig.tractorsEndpoint}/$tractorId/summary'),
+        headers: _getHeaders(),
+      );
+      
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      }
+      throw Exception('Failed to get tractor summary');
+    } catch (e) {
+      AppConfig.logError('Get tractor summary error', e);
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> getUserStatistics() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl${AppConfig.statisticsEndpoint}/user'),
+        headers: _getHeaders(),
+      );
+      
+      if (response.statusCode == 200) {
+        return json.decode(response.body);
+      }
+      throw Exception('Failed to get user statistics');
+    } catch (e) {
+      AppConfig.logError('Get user statistics error', e);
+      rethrow;
+    }
   }
 }
 

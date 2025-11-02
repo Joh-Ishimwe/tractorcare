@@ -11,7 +11,6 @@ import '../../models/tractor.dart';
 import '../../config/colors.dart';
 import '../../services/api_service.dart';
 import '../usage/usage_history_screen.dart';
-import '../audio/audio_results_screen.dart';
 
 class TractorDetailScreen extends StatefulWidget {
   const TractorDetailScreen({Key? key}) : super(key: key);
@@ -24,6 +23,7 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
   String? _tractorId;
   bool _isLoading = true;
   Map<String, dynamic>? _usageStats;
+  Map<String, dynamic>? _tractorSummary;
   final ApiService _apiService = ApiService();
 
   @override
@@ -70,6 +70,16 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
         });
       } catch (e) {
         print('Error loading usage stats: $e');
+      }
+      
+      // Load tractor summary
+      try {
+        final summary = await _apiService.getTractorSummary(actualTractorId);
+        setState(() {
+          _tractorSummary = summary;
+        });
+      } catch (e) {
+        print('Error loading tractor summary: $e');
       }
     } catch (e) {
       print('Error loading tractor data: $e');
@@ -339,10 +349,14 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                   label: 'Test Audio',
                   color: AppColors.primary,
                   onTap: () {
+                    // Navigate to recording with tractor info
                     Navigator.pushNamed(
                       context,
-                      '/audio-test',
-                      arguments: tractor.id,
+                      '/recording',
+                      arguments: {
+                        'tractor_id': tractor.tractorId,
+                        'engine_hours': tractor.engineHours,
+                      },
                     );
                   },
                 ),
@@ -356,8 +370,8 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                   onTap: () {
                     Navigator.pushNamed(
                       context,
-                      '/maintenance',
-                      arguments: tractor.id,
+                      '/maintenance-alerts',
+                      arguments: {'tractor_id': tractor.tractorId},
                     );
                   },
                 ),
@@ -579,11 +593,10 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                               ),
                               InkWell(
                                 onTap: () {
-                                  Navigator.push(
+                                  Navigator.pushNamed(
                                     context,
-                                    MaterialPageRoute(
-                                      builder: (context) => AudioResultsScreen(prediction: prediction),
-                                    ),
+                                    '/audio-results',
+                                    arguments: prediction,
                                   );
                                 },
                                 child: Row(
@@ -839,13 +852,16 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                 ),
                 TextButton(
                   onPressed: () {
-                    Navigator.push(
+                    final tractor = Provider.of<TractorProvider>(context, listen: false)
+                        .tractors.firstWhere(
+                          (t) => t.id == _tractorId || t.tractorId == _tractorId,
+                          orElse: () => Provider.of<TractorProvider>(context, listen: false)
+                              .selectedTractor ?? Provider.of<TractorProvider>(context, listen: false).tractors.first,
+                        );
+                    Navigator.pushNamed(
                       context,
-                      MaterialPageRoute(
-                        builder: (context) => UsageHistoryScreen(
-                          tractorId: _tractorId!,
-                        ),
-                      ),
+                      '/usage-history',
+                      arguments: {'tractor_id': tractor.tractorId},
                     );
                   },
                   child: const Text('View All'),
@@ -928,88 +944,20 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
   }
 
   void _showLogHoursDialog(Tractor tractor) {
-    final hoursController = TextEditingController(
-      text: tractor.engineHours.toString(),
-    );
-    final notesController = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Log Engine Hours'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: hoursController,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(
-                    labelText: 'Current Engine Hours',
-                    hintText: 'e.g., 52.5',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: notesController,
-                  maxLines: 3,
-                  decoration: const InputDecoration(
-                    labelText: 'Notes (optional)',
-                    hintText: 'What work was done today?',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                try {
-                  final endHours = double.parse(hoursController.text);
-                  
-                  await _apiService.logDailyUsage(
-                    _tractorId!,
-                    endHours,
-                    notesController.text.isEmpty ? null : notesController.text,
-                  );
-
-                  if (mounted) {
-                    Navigator.pop(context);
-                    
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('✅ Hours logged successfully!'),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-
-                    // Refresh data
-                    _loadData();
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('❌ Error: ${e.toString()}'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                }
-              },
-              child: const Text('Log Hours'),
-            ),
-          ],
-        );
+    // Navigate to dedicated log usage screen
+    Navigator.pushNamed(
+      context,
+      '/log-usage',
+      arguments: {
+        'tractor_id': tractor.tractorId,
+        'current_hours': tractor.engineHours,
       },
-    );
+    ).then((success) {
+      if (success == true) {
+        // Refresh data after successful log
+        _loadData();
+      }
+    });
   }
 
   List<PieChartSectionData> _getPieChartSections(Map<String, dynamic> last7Days, Map<String, dynamic> last30Days) {

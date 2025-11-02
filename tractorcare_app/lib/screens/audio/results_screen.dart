@@ -518,7 +518,7 @@ class ResultsScreen extends StatelessWidget {
               onPressed: () {
                 Navigator.pushNamedAndRemoveUntil(
                   context,
-                  '/audio-test',
+                  '/tractors',
                   (route) => route.settings.name == '/dashboard',
                 );
               },

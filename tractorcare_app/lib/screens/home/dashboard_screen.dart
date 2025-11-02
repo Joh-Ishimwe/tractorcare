@@ -65,7 +65,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         Navigator.pushNamed(context, '/tractors');
         break;
       case 2:
-        Navigator.pushNamed(context, '/audio-test');
+        Navigator.pushNamed(context, '/tractors');
         break;
       case 3:
         Navigator.pushNamed(context, '/maintenance');
@@ -279,7 +279,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 Icons.mic,
                 'Audio Test',
                 AppColors.info,
-                () => Navigator.pushNamed(context, '/audio-test'),
+                () {
+                  // Navigate to tractors first, then user can select and test
+                  Navigator.pushNamed(context, '/tractors');
+                },
               ),
             ),
           ],

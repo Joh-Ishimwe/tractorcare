@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:provider/provider.dart';
 import '../../providers/tractor_provider.dart';
-// Import other providers as needed for maintenance, audio, usage.
+import '../../services/api_service.dart';
+import '../../config/app_config.dart';
 
 class StatisticsScreen extends StatefulWidget {
   const StatisticsScreen({super.key});
@@ -14,6 +15,8 @@ class StatisticsScreen extends StatefulWidget {
 class _StatisticsScreenState extends State<StatisticsScreen> {
   bool _loading = true;
   String? _error;
+  Map<String, dynamic>? _stats;
+  final ApiService _apiService = ApiService();
 
   @override
   void initState() {
@@ -27,11 +30,14 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
       _error = null;
     });
     try {
-      // Imagine calling Provider methods for tractors, maintenance, etc. here.
-      // await Provider.of<TractorProvider>(context, listen: false).fetchTractors();
-      // Also for maintenance, audio, and usage providers as needed.
+      await Provider.of<TractorProvider>(context, listen: false).fetchTractors();
+      final stats = await _apiService.getUserStatistics();
+      setState(() {
+        _stats = stats;
+      });
     } catch (e) {
       setState(() { _error = e.toString(); });
+      AppConfig.logError('Statistics load error', e);
     }
     setState(() { _loading = false; });
   }
@@ -146,7 +152,14 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   }
 
   Widget _buildMaintenanceStats(BuildContext context) {
-    // Placeholder - can integrate MaintenanceProvider for breakdown (due/completed/overdue)
+    if (_stats == null) {
+      return _emptyCard('No maintenance statistics available.', icon: Icons.build);
+    }
+    
+    final totalRecords = _stats!['total_maintenance_records'] ?? 0;
+    final recordsWithCost = _stats!['records_with_cost'] ?? 0;
+    final totalSpent = _stats!['total_spent_rwf'] ?? 0;
+    
     return Card(
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -157,12 +170,16 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           children: [
             const Text('Maintenance Summary', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
             const SizedBox(height: 16),
-            Row(children: [
-               Icon(Icons.build, color: Colors.orange),
-               SizedBox(width: 8),
-               Text('Maintenance stats go here'),
-            ]),
-            // TODO: Add real chart once MaintenanceProvider is integrated
+            Row(
+              children: [
+                _statBadge(Icons.build, totalRecords, 'Total Records', color: Colors.blue.shade700),
+                const SizedBox(width: 14),
+                _statBadge(Icons.receipt, recordsWithCost, 'With Cost', color: Colors.orange),
+                const SizedBox(width: 14),
+                if (totalSpent > 0)
+                  _statBadge(Icons.monetization_on, totalSpent, 'Total Spent', color: Colors.green),
+              ],
+            ),
           ],
         ),
       ),
@@ -170,7 +187,8 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   }
 
   Widget _buildAudioStats(BuildContext context) {
-    // Placeholder - can integrate AudioProvider
+    // Audio stats will be shown via AudioProvider in the future
+    // For now, show a placeholder that can be enhanced
     return Card(
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -181,12 +199,19 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           children: [
             const Text('Audio Test Results', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
             const SizedBox(height: 16),
-            Row(children: [
-               Icon(Icons.graphic_eq, color: Colors.blue),
-               SizedBox(width: 8),
-               Text('Audio stats go here'),
-            ]),
-            // TODO: Add real chart once AudioProvider is integrated
+            const Row(
+              children: [
+                Icon(Icons.graphic_eq, color: Colors.blue),
+                SizedBox(width: 8),
+                Text('Audio test statistics will be displayed here'),
+              ],
+            ),
+            const SizedBox(height: 16),
+            TextButton.icon(
+              onPressed: () => Navigator.pushNamed(context, '/tractors'),
+              icon: const Icon(Icons.agriculture),
+              label: const Text('View Tractors to Run Tests'),
+            ),
           ],
         ),
       ),
@@ -194,7 +219,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   }
 
   Widget _buildUsageStats(BuildContext context) {
-    // Placeholder - can integrate UsageProvider
+    // Usage stats are per-tractor, shown in tractor detail
     return Card(
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -205,12 +230,21 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           children: [
             const Text('Usage Summary', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
             const SizedBox(height: 16),
-            Row(children: [
-               Icon(Icons.bar_chart, color: Colors.green),
-               SizedBox(width: 8),
-               Text('Usage stats go here'),
-            ]),
-            // TODO: Add real chart once UsageProvider is integrated
+            const Row(
+              children: [
+                Icon(Icons.bar_chart, color: Colors.green),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text('Detailed usage statistics are available in each tractor\'s detail screen'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            TextButton.icon(
+              onPressed: () => Navigator.pushNamed(context, '/tractors'),
+              icon: const Icon(Icons.agriculture),
+              label: const Text('View Tractors for Usage Details'),
+            ),
           ],
         ),
       ),
@@ -234,7 +268,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     );
   }
 
-  Widget _statBadge(IconData icon, int value, String label, {Color? color}) {
+  Widget _statBadge(IconData icon, dynamic value, String label, {Color? color}) {
     final c = color ?? Colors.blue;
     return Container(
       width: 62,
@@ -248,8 +282,8 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
         children: [
           Icon(icon, color: c, size: 22),
           const SizedBox(height: 4),
-          Text('$value', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold, color: c)),
-          Text(label, style: TextStyle(fontSize: 11, color: c)),
+          Text('$value', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold, color: c), maxLines: 1, overflow: TextOverflow.ellipsis),
+          Text(label, style: TextStyle(fontSize: 11, color: c), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
         ],
       ),
     );

@@ -149,7 +149,7 @@ class BaselineStatusScreen extends StatelessWidget {
               text: 'Run Audio Test Now',
               icon: Icons.mic,
               onPressed: () {
-                Navigator.pushNamed(context, '/audio-test');
+                Navigator.pushNamed(context, '/tractors');
               },
               width: double.infinity,
             ),

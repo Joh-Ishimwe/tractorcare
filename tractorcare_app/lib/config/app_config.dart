@@ -7,6 +7,7 @@ class AppConfig {
   static const String baselineEndpoint = '/baseline';
   static const String maintenanceEndpoint = '/maintenance';
   static const String statisticsEndpoint = '/statistics';
+  static const String usageEndpoint = '/usage';
   static const String demoEndpoint = '/demo';
   
   static const String tokenKey = 'auth_token';
@@ -27,8 +28,8 @@ class AppConfig {
   static const int defaultPageSize = 20;
   static const int maxPageSize = 100;
   
-  static const int apiTimeout = 30;
-  static const int uploadTimeout = 60;
+  static const int apiTimeout = 60;
+  static const int uploadTimeout = 120;
   
   static const int minPasswordLength = 8;
   static const int maxPasswordLength = 128;
