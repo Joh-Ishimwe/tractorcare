@@ -36,13 +36,13 @@ UPLOAD_DIR = Path("uploads/audio")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # Supported audio formats
-SUPPORTED_FORMATS = {'.wav', '.flac', '.mp3', '.ogg'}
+SUPPORTED_FORMATS = {'.wav', '.flac', '.mp3', '.ogg', '.m4a'}
 
 
 @router.post("/upload", response_model=AudioPredictionResponse)
 async def upload_audio(
     tractor_id: str = Query(..., description="Tractor ID"),
-    file: UploadFile = File(..., description="Audio file (.wav, .flac, .mp3, .ogg)"),
+    file: UploadFile = File(..., description="Audio file (.wav, .flac, .mp3, .ogg, .m4a)"),
     tractor_hours: Optional[float] = Query(None, description="Current tractor hours"),
     current_user: User = Depends(get_current_user)
 ):
@@ -50,7 +50,7 @@ async def upload_audio(
     Upload audio file and get tractor health prediction with baseline comparison
     
     **New:** If baseline exists, compares against tractor-specific baseline
-    **Supported formats:** .wav, .flac, .mp3, .ogg
+    **Supported formats:** .wav, .flac, .mp3, .ogg, .m4a
     
     The model analyzes audio patterns to detect:
     - Normal operation

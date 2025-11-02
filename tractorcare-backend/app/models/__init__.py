@@ -7,7 +7,7 @@ UPDATED: Added baseline models for personalized audio predictions
 from datetime import datetime
 from typing import Dict, List, Optional
 from enum import Enum
-from beanie import Document, Indexed
+from beanie import Document
 from pydantic import BaseModel, Field, EmailStr
 from bson import ObjectId
 
@@ -172,8 +172,8 @@ class User(Document):
 
 class Tractor(Document):
     """Tractor model with maintenance tracking"""
-    tractor_id: Indexed(str, unique=True)
-    owner_id: Indexed(str)  # Reference to User
+    tractor_id: str = Field(..., unique=True)
+    owner_id: str  # Reference to User
     model: str  # e.g., "MF_240", "MF_375"
     make: str = "Massey Ferguson"
     purchase_date: datetime
@@ -193,12 +193,15 @@ class Tractor(Document):
     
     class Settings:
         name = "tractors"
-        indexes = ["tractor_id", "owner_id"]
+        indexes = [
+            [("tractor_id", 1)],  # Unique index
+            [("owner_id", 1)],    # Regular index
+        ]
 
 
 class MaintenanceRecord(Document):
     """Completed maintenance records"""
-    tractor_id: Indexed(str)
+    tractor_id: str
     task_name: str
     description: str
     completion_date: datetime
@@ -220,12 +223,15 @@ class MaintenanceRecord(Document):
     
     class Settings:
         name = "maintenance_records"
-        indexes = ["tractor_id", "completion_date"]
+        indexes = [
+            [("tractor_id", 1)],
+            [("completion_date", -1)]
+        ]
 
 
 class MaintenanceAlert(Document):
     """Maintenance alerts/predictions"""
-    tractor_id: Indexed(str)
+    tractor_id: str
     alert_type: AlertType
     priority: MaintenancePriority
     status: MaintenanceStatus
@@ -248,12 +254,16 @@ class MaintenanceAlert(Document):
     
     class Settings:
         name = "maintenance_alerts"
-        indexes = ["tractor_id", "status", "due_date"]
+        indexes = [
+            [("tractor_id", 1)],
+            [("status", 1)],
+            [("due_date", 1)]
+        ]
 
 
 class AudioPrediction(Document):
     """Audio recording predictions"""
-    tractor_id: Indexed(str)
+    tractor_id: str
     
     # File info
     filename: str
@@ -280,12 +290,16 @@ class AudioPrediction(Document):
     
     class Settings:
         name = "audio_predictions"
-        indexes = ["tractor_id", "prediction_class", "recorded_at"]
+        indexes = [
+            [("tractor_id", 1)],
+            [("prediction_class", 1)],
+            [("recorded_at", -1)]
+        ]
 
 
 class Anomaly(Document):
     """Audio anomalies detected"""
-    tractor_id: Indexed(str)
+    tractor_id: str
     prediction_id: str  # Reference to AudioPrediction
     
     anomaly_type: str  # e.g., "high_vibration", "unusual_noise"
@@ -302,12 +316,16 @@ class Anomaly(Document):
     
     class Settings:
         name = "anomalies"
-        indexes = ["tractor_id", "handled", "created_at"]
+        indexes = [
+            [("tractor_id", 1)],
+            [("handled", 1)],
+            [("created_at", -1)]
+        ]
 
 
 class MaintenanceSchedule(Document):
     """Maintenance schedule templates by model"""
-    model: Indexed(str, unique=True)  # e.g., "MF_240"
+    model: str = Field(..., unique=True)  # e.g., "MF_240"
     make: str
     tasks: List[MaintenanceTaskInfo]
     
@@ -317,7 +335,9 @@ class MaintenanceSchedule(Document):
     
     class Settings:
         name = "maintenance_schedules"
-        indexes = ["model"]
+        indexes = [
+            [("model", 1)]  # Unique index handled by Field(unique=True)
+        ]
 
 
 # ============================================================================
