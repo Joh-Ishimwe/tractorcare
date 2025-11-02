@@ -126,40 +126,33 @@ async def quick_test_audio(
             f"Demo prediction: {prediction_class} "
             f"(confidence: {confidence:.2%}, processing: {processing_time:.0f}ms)"
         )
-        
+           
         return {
-            "success": True,
-            
-            "prediction": {
-                "class": prediction_class,
-                "confidence": round(confidence, 4),
-                "anomaly_score": round(anomaly_score, 4),
-                "anomaly_type": anomaly_type
-            },
-            
-            "interpretation": {
-                "message": interpretation,
-                "recommendation": recommendation,
-                "severity": severity
-            },
-            
-            "audio_info": {
-                "duration_seconds": round(duration, 2),
-                "sample_rate": sample_rate,
-                "file_size_kb": round(file_size / 1024, 2),
-                "signup_message": "This is a demo prediction using General model only. Sign up to get personalized baseline analysis for YOUR specific tractor!"
-            },
-            
-            "message": "This is a demo prediction using General model only. Sign up to get personalized baseline analysis for YOUR specific tractor!",
-            
-            "features_with_account": [
-                "Create baseline from YOUR tractor's normal sound",
-                "Get personalized anomaly detection",
-                "Track audio changes over time",
-                "Maintenance scheduling and alerts",
-                "Full history and trend analysis"
-            ]
-        }
+    "success": True,
+    "prediction": {
+        "class": prediction_class,
+        "confidence": round(confidence, 4),
+        "anomaly_score": round(anomaly_score, 4),
+        "anomaly_type": anomaly_type
+    },
+    "interpretation": {
+        "message": interpretation,
+        "recommendation": recommendation,
+        "severity": severity
+    },
+    "audio_info": {
+        "duration_seconds": round(duration, 2),
+        "sample_rate": sample_rate,
+        "file_size_kb": round(file_size / 1024, 2)
+    },
+    "footer_html": (
+        "<p style='text-align:center; font-weight:bold; margin-top:10px;'>"
+        "This is a demo prediction using General model only.<br>"
+        "Sign up to get a personalized baseline analysis for YOUR specific tractor!"
+        "</p>"
+    )
+}
+
         
     except HTTPException:
         raise
