@@ -51,7 +51,8 @@ class MLService:
         "duration": 10,
         "n_mfcc": 40,
         "max_len": 100,
-        "apply_highpass": False
+        "apply_highpass": False,
+        "normalize_mfcc": False
     }
     
     def __init__(self):
@@ -114,38 +115,49 @@ class MLService:
     
     def extract_mfcc_features(self, file_path: str) -> np.ndarray:
         """
-        Extract MFCC features for ResNet model
-        Returns MFCC of shape (n_mfcc, max_len)
+        Extract MFCC features for ResNet model with normalization
+        Returns MFCC of shape (n_mfcc, max_len) normalized
         """
         try:
-            # Load audio
             audio, sr = librosa.load(
                 file_path,
                 sr=self.CONFIG["sample_rate"],
                 duration=self.CONFIG["duration"]
             )
             
-            # Log audio file info
             logger.info(f"🎵 Loaded audio: {len(audio)} samples @ {sr}Hz, duration: {len(audio)/sr:.2f}s")
             
-            # Extract MFCCs
+            if len(audio) == 0:
+                raise ValueError(f"Audio file is empty or could not be loaded: {file_path}")
+            
             mfcc = librosa.feature.mfcc(
                 y=audio,
                 sr=sr,
                 n_mfcc=self.CONFIG["n_mfcc"]
             )
             
-            logger.info(f"🎵 Raw MFCC shape: {mfcc.shape}")
+            logger.info(f"🎵 Raw MFCC shape: {mfcc.shape}, range: [{mfcc.min():.3f}, {mfcc.max():.3f}]")
             
-            # Pad or truncate to fixed length
             max_len = self.CONFIG["max_len"]
             if mfcc.shape[1] < max_len:
                 pad_width = max_len - mfcc.shape[1]
-                mfcc = np.pad(mfcc, pad_width=((0, 0), (0, pad_width)), mode='constant')
+                mfcc = np.pad(mfcc, pad_width=((0, 0), (0, pad_width)), mode='constant', constant_values=0)
                 logger.info(f"🔧 Padded MFCC from {mfcc.shape[1] - pad_width} to {mfcc.shape[1]} timesteps")
             else:
                 mfcc = mfcc[:, :max_len]
                 logger.info(f"✂️ Truncated MFCC to {max_len} timesteps")
+            
+            if self.CONFIG.get("normalize_mfcc", False):
+                mfcc_mean = np.mean(mfcc)
+                mfcc_std = np.std(mfcc)
+                
+                if mfcc_std > 1e-6:
+                    mfcc = (mfcc - mfcc_mean) / mfcc_std
+                    logger.info(f"📊 Normalized MFCC: mean={mfcc_mean:.3f}, std={mfcc_std:.3f}, after norm range: [{mfcc.min():.3f}, {mfcc.max():.3f}]")
+                else:
+                    logger.warning(f"⚠️ MFCC has very low variance (std={mfcc_std:.6f}), skipping normalization")
+            else:
+                logger.info(f"📊 MFCC not normalized (raw features): range: [{mfcc.min():.3f}, {mfcc.max():.3f}]")
             
             return mfcc
             
@@ -176,20 +188,39 @@ class MLService:
             logger.info(f"🎵 MFCC shape: {mfcc.shape}")
             logger.info(f"🔢 MFCC stats: min={mfcc.min():.3f}, max={mfcc.max():.3f}, mean={mfcc.mean():.3f}")
             
-            # Prepare input (add batch and channel dimensions)
             X = np.expand_dims(np.expand_dims(mfcc, 0), -1)
             logger.info(f"📊 Model input shape: {X.shape}")
+            logger.info(f"📊 Model input stats: min={X.min():.6f}, max={X.max():.6f}, mean={X.mean():.6f}, std={X.std():.6f}")
             
-            # Predict
-            prediction_output = self.model.predict(X, verbose=0)
+            with tf.device('/CPU:0'):
+                prediction_output = self.model(X, training=False)
+                if isinstance(prediction_output, tf.Tensor):
+                    prediction_output = prediction_output.numpy()
+            
             logger.info(f"🎯 Raw model output shape: {prediction_output.shape}")
-            logger.info(f"🎯 Raw model output: {prediction_output}")
+            logger.info(f"🎯 Raw model output (full): {prediction_output}")
+            logger.info(f"🎯 Raw model output (dtype): {prediction_output.dtype}")
             
-            probability = prediction_output[0][0]
-            logger.info(f"🎲 Extracted probability: {probability}")
-            logger.info(f"🎲 Probability type: {type(probability)}")
+            if prediction_output.size == 0:
+                raise ValueError(f"Model returned empty prediction: {prediction_output.shape}")
+            
+            if len(prediction_output.shape) == 2:
+                probability = float(prediction_output[0, 0])
+            elif len(prediction_output.shape) == 1:
+                probability = float(prediction_output[0])
+            else:
+                logger.warning(f"⚠️ Unexpected prediction shape: {prediction_output.shape}, flattening")
+                probability = float(np.array(prediction_output).flatten()[0])
+            
+            logger.info(f"🎲 Extracted probability: {probability:.6f} (type: {type(probability)})")
+            
+            if np.isnan(probability) or np.isinf(probability):
+                logger.error(f"❌ Invalid probability value: {probability}")
+                probability = 0.5
+            
             is_anomaly = probability > 0.5
-            confidence = probability if is_anomaly else 1 - probability
+            confidence = float(probability) if is_anomaly else float(1 - probability)
+            logger.info(f"🎯 Final: is_anomaly={is_anomaly}, confidence={confidence:.6f}, anomaly_score={probability:.6f}")
             
             # Classify anomaly type based on probability
             if probability < 0.5:
@@ -275,30 +306,47 @@ class MLService:
             return {"error": "Model not loaded"}
         
         try:
-            # Create test inputs - zeros vs random noise
             input_shape = (1, self.CONFIG["n_mfcc"], self.CONFIG["max_len"], 1)
             
             zeros_input = np.zeros(input_shape)
             random_input = np.random.randn(*input_shape)
+            random_input_normalized = (random_input - random_input.mean()) / (random_input.std() + 1e-6)
             uniform_input = np.ones(input_shape)
             
-            # Get predictions
-            pred_zeros = self.model.predict(zeros_input, verbose=0)[0][0]
-            pred_random = self.model.predict(random_input, verbose=0)[0][0] 
-            pred_uniform = self.model.predict(uniform_input, verbose=0)[0][0]
+            with tf.device('/CPU:0'):
+                pred_zeros_tensor = self.model(zeros_input, training=False)
+                pred_random_tensor = self.model(random_input_normalized, training=False)
+                pred_uniform_tensor = self.model(uniform_input, training=False)
+                
+                if isinstance(pred_zeros_tensor, tf.Tensor):
+                    pred_zeros_tensor = pred_zeros_tensor.numpy()
+                if isinstance(pred_random_tensor, tf.Tensor):
+                    pred_random_tensor = pred_random_tensor.numpy()
+                if isinstance(pred_uniform_tensor, tf.Tensor):
+                    pred_uniform_tensor = pred_uniform_tensor.numpy()
+            
+            pred_zeros = float(pred_zeros_tensor.flatten()[0])
+            pred_random = float(pred_random_tensor.flatten()[0])
+            pred_uniform = float(pred_uniform_tensor.flatten()[0])
+            
+            variance = float(np.var([pred_zeros, pred_random, pred_uniform]))
+            test_passed = variance > 0.001
+            
+            logger.info(f"🧪 Model sanity test: variance={variance:.6f}, passed={test_passed}")
             
             return {
-                "test_passed": not (abs(pred_zeros - pred_random) < 0.01 and abs(pred_random - pred_uniform) < 0.01),
+                "test_passed": test_passed,
                 "predictions": {
-                    "zeros": float(pred_zeros),
-                    "random": float(pred_random), 
-                    "uniform": float(pred_uniform)
+                    "zeros": pred_zeros,
+                    "random_normalized": pred_random,
+                    "uniform": pred_uniform
                 },
-                "variance": float(np.var([pred_zeros, pred_random, pred_uniform])),
-                "interpretation": "Model should give different outputs for different inputs"
+                "variance": variance,
+                "interpretation": "Model should give different outputs for different inputs. Variance > 0.001 indicates model is responding to inputs."
             }
             
         except Exception as e:
+            logger.error(f"❌ Model sanity test error: {e}")
             return {"error": str(e)}
 
 
