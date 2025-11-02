@@ -23,58 +23,6 @@ SUPPORTED_FORMATS = {'.wav', '.flac', '.mp3', '.ogg', '.m4a'}
 MAX_FILE_SIZE_MB = 10
 
 
-@router.get("/model-info")
-async def get_model_info():
-    """Get information about the loaded ML model"""
-    return ml_service.get_model_info()
-
-
-@router.get("/model-test")
-async def test_model():
-    """Test if the model is working properly (gives different outputs for different inputs)"""
-    return ml_service.test_model_sanity()
-
-
-@router.post("/debug-prediction")
-async def debug_prediction(
-    file: UploadFile = File(..., description="Audio file for debugging")
-):
-    """
-    Debug endpoint - returns detailed prediction info including feature statistics
-    """
-    try:
-        # Save file temporarily
-        demo_id = str(uuid.uuid4())[:8]
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        file_ext = os.path.splitext(file.filename)[1].lower()
-        filename = f"debug_{timestamp}_{demo_id}{file_ext}"
-        file_path = DEMO_DIR / filename
-        
-        content = await file.read()
-        with open(file_path, "wb") as f:
-            f.write(content)
-        
-        # Get detailed prediction with debug info
-        result = await ml_service.predict_audio(str(file_path), "DEBUG")
-        
-        # Clean up
-        os.remove(file_path)
-        
-        return {
-            "message": "Debug prediction completed - check server logs for detailed feature info",
-            "result": result,
-            "file_info": {
-                "filename": file.filename,
-                "size_bytes": len(content),
-                "extension": file_ext
-            }
-        }
-        
-    except Exception as e:
-        logger.error(f"Debug prediction failed: {e}")
-        return {"error": str(e)}
-
-
 @router.post("/quick-test")
 async def quick_test_audio(
     file: UploadFile = File(..., description="Audio file (.wav, .flac, .mp3, .ogg, .m4a)")
@@ -198,7 +146,8 @@ async def quick_test_audio(
             "audio_info": {
                 "duration_seconds": round(duration, 2),
                 "sample_rate": sample_rate,
-                "file_size_kb": round(file_size / 1024, 2)
+                "file_size_kb": round(file_size / 1024, 2),
+                "signup_message": "This is a demo prediction using General model only. Sign up to get personalized baseline analysis for YOUR specific tractor!"
             },
             
             "message": "This is a demo prediction using General model only. Sign up to get personalized baseline analysis for YOUR specific tractor!",
