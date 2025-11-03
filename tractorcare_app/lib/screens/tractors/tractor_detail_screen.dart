@@ -11,9 +11,10 @@ import '../../models/tractor.dart';
 import '../../config/colors.dart';
 import '../../services/api_service.dart';
 import '../usage/usage_history_screen.dart';
+import '../audio/audio_results_screen.dart';
 
 class TractorDetailScreen extends StatefulWidget {
-  const TractorDetailScreen({Key? key}) : super(key: key);
+  const TractorDetailScreen({super.key});
 
   @override
   State<TractorDetailScreen> createState() => _TractorDetailScreenState();
@@ -23,7 +24,6 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
   String? _tractorId;
   bool _isLoading = true;
   Map<String, dynamic>? _usageStats;
-  Map<String, dynamic>? _tractorSummary;
   final ApiService _apiService = ApiService();
 
   @override
@@ -31,8 +31,7 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
     super.didChangeDependencies();
     if (_tractorId == null) {
       _tractorId = ModalRoute.of(context)!.settings.arguments as String;
-      // Use post-frame callback to avoid setState during build
-      WidgetsBinding.instance.addPostFrameCallback((_) => _loadData());
+      _loadData();
     }
   }
 
@@ -42,52 +41,17 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
     final tractorProvider = Provider.of<TractorProvider>(context, listen: false);
     final audioProvider = Provider.of<AudioProvider>(context, listen: false);
     
+    await tractorProvider.getTractor(_tractorId!);
+    await audioProvider.fetchPredictions(_tractorId!, limit: 5);
+    
+    // Load usage statistics
     try {
-      // Find tractor in list first to get the actual tractor_id
-      Tractor? tractor;
-      if (_tractorId != null) {
-        // Check if it's already in the list
-        tractor = tractorProvider.tractors.firstWhere(
-          (t) => t.id == _tractorId || t.tractorId == _tractorId,
-          orElse: () => tractorProvider.tractors.first,
-        );
-      }
-      
-      // Use tractor_id (like "T005") not database id for API calls
-      final actualTractorId = tractor?.tractorId ?? _tractorId!;
-      
-      // Fetch tractor details
-      await tractorProvider.getTractor(actualTractorId);
-      
-      // Fetch predictions using tractor_id
-      await audioProvider.fetchPredictions(actualTractorId, limit: 5);
-      
-      // Load usage statistics using tractor_id
-      try {
-        final stats = await _apiService.getUsageStats(actualTractorId);
-        setState(() {
-          _usageStats = stats;
-        });
-      } catch (e) {
-        print('Error loading usage stats: $e');
-      }
-      
-      // Load tractor summary
-      try {
-        final summary = await _apiService.getTractorSummary(actualTractorId);
-        setState(() {
-          _tractorSummary = summary;
-        });
-      } catch (e) {
-        print('Error loading tractor summary: $e');
-      }
+      final stats = await _apiService.getUsageStats(_tractorId!);
+      setState(() {
+        _usageStats = stats;
+      });
     } catch (e) {
-      print('Error loading tractor data: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load tractor: $e')),
-        );
-      }
+      print('Error loading usage stats: $e');
     }
     
     setState(() => _isLoading = false);
@@ -349,14 +313,10 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                   label: 'Test Audio',
                   color: AppColors.primary,
                   onTap: () {
-                    // Navigate to recording with tractor info
                     Navigator.pushNamed(
                       context,
-                      '/recording',
-                      arguments: {
-                        'tractor_id': tractor.tractorId,
-                        'engine_hours': tractor.engineHours,
-                      },
+                      '/audio-test',
+                      arguments: tractor.id,
                     );
                   },
                 ),
@@ -370,8 +330,8 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                   onTap: () {
                     Navigator.pushNamed(
                       context,
-                      '/maintenance-alerts',
-                      arguments: {'tractor_id': tractor.tractorId},
+                      '/maintenance',
+                      arguments: tractor.id,
                     );
                   },
                 ),
@@ -593,10 +553,11 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                               ),
                               InkWell(
                                 onTap: () {
-                                  Navigator.pushNamed(
+                                  Navigator.push(
                                     context,
-                                    '/audio-results',
-                                    arguments: prediction,
+                                    MaterialPageRoute(
+                                      builder: (context) => AudioResultsScreen(prediction: prediction),
+                                    ),
                                   );
                                 },
                                 child: Row(
@@ -852,16 +813,13 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                 ),
                 TextButton(
                   onPressed: () {
-                    final tractor = Provider.of<TractorProvider>(context, listen: false)
-                        .tractors.firstWhere(
-                          (t) => t.id == _tractorId || t.tractorId == _tractorId,
-                          orElse: () => Provider.of<TractorProvider>(context, listen: false)
-                              .selectedTractor ?? Provider.of<TractorProvider>(context, listen: false).tractors.first,
-                        );
-                    Navigator.pushNamed(
+                    Navigator.push(
                       context,
-                      '/usage-history',
-                      arguments: {'tractor_id': tractor.tractorId},
+                      MaterialPageRoute(
+                        builder: (context) => UsageHistoryScreen(
+                          tractorId: _tractorId!,
+                        ),
+                      ),
                     );
                   },
                   child: const Text('View All'),
@@ -872,46 +830,25 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
             const SizedBox(height: 8),
             
             // Simple usage history list (last 5 days)
-            Consumer<TractorProvider>(
-              builder: (context, tractorProvider, child) {
-                // Get actual tractor_id for API call
-                final tractor = tractorProvider.tractors.firstWhere(
-                  (t) => t.id == _tractorId || t.tractorId == _tractorId,
-                  orElse: () => tractorProvider.selectedTractor ?? tractorProvider.tractors.first,
-                );
-                final actualTractorId = tractor.tractorId;
+            FutureBuilder<List<dynamic>>(
+              future: _apiService.getUsageHistory(_tractorId!, days: 5),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                final history = snapshot.data!;
                 
-                return FutureBuilder<List<dynamic>>(
-                  future: _apiService.getUsageHistory(actualTractorId, days: 5),
-                  builder: (context, snapshot) {
-                    if (snapshot.hasError) {
-                      return Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16.0),
-                          child: Text(
-                            'Error: ${snapshot.error}',
-                            style: const TextStyle(color: Colors.red),
-                          ),
-                        ),
-                      );
-                    }
-                    
-                    if (!snapshot.hasData) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
+                if (history.isEmpty) {
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(32),
+                      child: Text('No usage logged yet'),
+                    ),
+                  );
+                }
 
-                    final history = snapshot.data!;
-                    
-                    if (history.isEmpty) {
-                      return const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(32),
-                          child: Text('No usage logged yet'),
-                        ),
-                      );
-                    }
-
-                    return Column(
+                return Column(
                   children: history.map<Widget>((record) {
                     final date = DateTime.parse(record['date']);
                     final hoursUsed = record['hours_used'];
@@ -922,18 +859,16 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                         '${date.day}/${date.month}/${date.year}',
                         style: const TextStyle(fontWeight: FontWeight.w500),
                       ),
-                          subtitle: Text('${hoursUsed.toStringAsFixed(1)} hours used'),
-                          trailing: Text(
-                            '${(record['end_hours'] as num).toStringAsFixed(0)} hrs',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.grey[700],
-                            ),
-                          ),
-                        );
-                      }).toList(),
+                      subtitle: Text('${hoursUsed.toStringAsFixed(1)} hours used'),
+                      trailing: Text(
+                        '${record['end_hours']} hrs',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey[700],
+                        ),
+                      ),
                     );
-                  },
+                  }).toList(),
                 );
               },
             ),
@@ -944,20 +879,88 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
   }
 
   void _showLogHoursDialog(Tractor tractor) {
-    // Navigate to dedicated log usage screen
-    Navigator.pushNamed(
-      context,
-      '/log-usage',
-      arguments: {
-        'tractor_id': tractor.tractorId,
-        'current_hours': tractor.engineHours,
+    final hoursController = TextEditingController(
+      text: tractor.engineHours.toString(),
+    );
+    final notesController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Log Engine Hours'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: hoursController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: 'Current Engine Hours',
+                    hintText: 'e.g., 52.5',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: notesController,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Notes (optional)',
+                    hintText: 'What work was done today?',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                try {
+                  final endHours = double.parse(hoursController.text);
+                  
+                  await _apiService.logDailyUsage(
+                    _tractorId!,
+                    endHours,
+                    notesController.text.isEmpty ? null : notesController.text,
+                  );
+
+                  if (mounted) {
+                    Navigator.pop(context);
+                    
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('✅ Hours logged successfully!'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+
+                    // Refresh data
+                    _loadData();
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('❌ Error: ${e.toString()}'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                }
+              },
+              child: const Text('Log Hours'),
+            ),
+          ],
+        );
       },
-    ).then((success) {
-      if (success == true) {
-        // Refresh data after successful log
-        _loadData();
-      }
-    });
+    );
   }
 
   List<PieChartSectionData> _getPieChartSections(Map<String, dynamic> last7Days, Map<String, dynamic> last30Days) {

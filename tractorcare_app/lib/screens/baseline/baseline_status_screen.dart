@@ -6,7 +6,7 @@ import '../../widgets/custom_button.dart';
 import '../../widgets/custom_card.dart';
 
 class BaselineStatusScreen extends StatelessWidget {
-  const BaselineStatusScreen({Key? key}) : super(key: key);
+  const BaselineStatusScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -149,7 +149,7 @@ class BaselineStatusScreen extends StatelessWidget {
               text: 'Run Audio Test Now',
               icon: Icons.mic,
               onPressed: () {
-                Navigator.pushNamed(context, '/tractors');
+                Navigator.pushNamed(context, '/audio-test');
               },
               width: double.infinity,
             ),

@@ -5,7 +5,7 @@ import '../../models/audio_prediction.dart';
 import '../../config/colors.dart';
 
 class ResultsScreen extends StatelessWidget {
-  const ResultsScreen({Key? key}) : super(key: key);
+  const ResultsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -518,7 +518,7 @@ class ResultsScreen extends StatelessWidget {
               onPressed: () {
                 Navigator.pushNamedAndRemoveUntil(
                   context,
-                  '/tractors',
+                  '/audio-test',
                   (route) => route.settings.name == '/dashboard',
                 );
               },
