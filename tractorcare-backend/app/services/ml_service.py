@@ -76,7 +76,15 @@ class MLService:
             try:
                 logger.info(f"📥 Downloading from Google Drive (attempt {retry_count + 1}/{max_retries}): {output_path}")
                 url = f"https://drive.google.com/uc?id={file_id}"
-                gdown.download(url, output_path, quiet=False, timeout=300)
+                
+                # Try with different gdown parameter combinations for compatibility
+                try:
+                    # Try newer gdown API first
+                    gdown.download(url, output_path, quiet=False, fuzzy=True)
+                except TypeError:
+                    # Fallback to older gdown API without timeout/fuzzy parameters
+                    gdown.download(url, output_path, quiet=False)
+                    
                 logger.info(f"✅ Downloaded: {output_path}")
                 return True
             except Exception as e:
@@ -97,34 +105,62 @@ class MLService:
             logger.info("🔍 Checking for ResNet model...")
             
             model_path = self.model_dir / "tractor_resnet_transfer.h5"
-
+            
+            # Try to find model in multiple locations (for production compatibility)
+            possible_paths = [
+                model_path,
+                Path("tractor_resnet_transfer.h5"),  # Root directory
+                Path("temp_models") / "tractor_resnet_transfer.h5",  # Explicit temp_models
+                Path("app") / "temp_models" / "tractor_resnet_transfer.h5",  # App subdirectory
+            ]
+            
+            model_found = False
+            actual_model_path = None
+            
+            # Check if model exists in any of the possible locations
+            for path in possible_paths:
+                if path.exists():
+                    actual_model_path = path
+                    model_found = True
+                    logger.info(f"✅ ResNet model found at: {path}")
+                    break
             
             # Download if not exists
-            if not model_path.exists():
+            if not model_found:
                 logger.info("📦 ResNet model not found locally, downloading from Google Drive...")
                 success = self._download_from_drive(self.RESNET_DRIVE_ID, str(model_path))
                 if not success:
-                    raise Exception("Failed to download ResNet model from Google Drive")
-            else:
-                logger.info("✅ ResNet model found in cache")
+                    logger.warning("⚠️ Failed to download ResNet model from Google Drive")
+                    logger.info("🔄 Service will continue without ML model (fallback mode)")
+                    self.model = None
+                    return
+                actual_model_path = model_path
             
             # Load model with custom objects
-            if model_path.exists():
-                # Register FocalLoss before loading
-                custom_objects = {'FocalLoss': FocalLoss}
-                
-                self.model = keras.models.load_model(
-                    model_path,
-                    custom_objects=custom_objects
-                )
-                logger.info("✅ ResNet transfer learning model loaded successfully")
-                logger.info("🎉 ML Service ready for predictions!")
+            if actual_model_path and actual_model_path.exists():
+                try:
+                    # Register FocalLoss before loading
+                    custom_objects = {'FocalLoss': FocalLoss}
+                    
+                    self.model = keras.models.load_model(
+                        actual_model_path,
+                        custom_objects=custom_objects
+                    )
+                    logger.info("✅ ResNet transfer learning model loaded successfully")
+                    logger.info("🎉 ML Service ready for predictions!")
+                except Exception as load_error:
+                    logger.error(f"❌ Error loading model from {actual_model_path}: {load_error}")
+                    logger.info("🔄 Service will continue without ML model (fallback mode)")
+                    self.model = None
             else:
-                raise Exception("ResNet model file not found after download attempt")
+                logger.warning("⚠️ ResNet model file not found after download attempt")
+                logger.info("🔄 Service will continue without ML model (fallback mode)")
+                self.model = None
                 
         except Exception as e:
-            logger.error(f"❌ Error loading model: {e}")
-            raise
+            logger.error(f"❌ Error in model initialization: {e}")
+            logger.info("🔄 Service will continue without ML model (fallback mode)")
+            self.model = None
     
     def extract_mfcc_features(self, file_path: str) -> np.ndarray:
         """
@@ -175,7 +211,9 @@ class MLService:
             logger.info(f"🔮 Making prediction for tractor: {tractor_id}")
             
             if self.model is None:
-                raise ValueError("Model not loaded. Please check Google Drive connection.")
+                logger.warning("⚠️ ML model not available, using fallback prediction")
+                # Fallback prediction - basic audio analysis
+                return await self._fallback_prediction(audio_path, tractor_id)
             
             # Extract MFCC features
             mfcc = self.extract_mfcc_features(audio_path)
@@ -222,35 +260,148 @@ class MLService:
             logger.error(f"❌ Prediction error: {e}")
             raise
     
+    async def _fallback_prediction(self, audio_path: str, tractor_id: str) -> dict:
+        """
+        Fallback prediction using basic audio analysis when ML model is not available
+        
+        Args:
+            audio_path: Path to audio file
+            tractor_id: Tractor identifier
+            
+        Returns:
+            Dictionary with basic prediction results
+        """
+        try:
+            logger.info(f"🔄 Using fallback prediction for tractor: {tractor_id}")
+            
+            # Basic audio analysis using librosa
+            audio, sr = librosa.load(
+                audio_path,
+                sr=self.CONFIG["sample_rate"],
+                duration=self.CONFIG["duration"]
+            )
+            
+            # Calculate basic audio features
+            # RMS energy (indicator of loudness)
+            rms = librosa.feature.rms(y=audio)[0]
+            avg_rms = np.mean(rms)
+            
+            # Zero crossing rate (indicator of noise/roughness)
+            zcr = librosa.feature.zero_crossing_rate(audio)[0]
+            avg_zcr = np.mean(zcr)
+            
+            # Spectral centroid (brightness/harshness indicator)
+            centroid = librosa.feature.spectral_centroid(y=audio, sr=sr)[0]
+            avg_centroid = np.mean(centroid)
+            
+            # Simple heuristic-based prediction
+            # These thresholds are basic approximations
+            anomaly_indicators = 0
+            
+            if avg_rms > 0.1:  # High energy
+                anomaly_indicators += 1
+            if avg_zcr > 0.15:  # High zero crossing rate (noisy)
+                anomaly_indicators += 1
+            if avg_centroid > 3000:  # High spectral centroid (harsh)
+                anomaly_indicators += 1
+                
+            # Predict based on indicators
+            probability = min(0.3 + (anomaly_indicators * 0.2), 0.9)  # Cap at 0.9
+            is_anomaly = anomaly_indicators >= 2
+            confidence = 0.6  # Lower confidence for fallback prediction
+            
+            # Basic anomaly classification
+            if not is_anomaly:
+                anomaly_type = None
+            elif anomaly_indicators >= 3:
+                anomaly_type = "high_vibration"
+            else:
+                anomaly_type = "minor_anomaly"
+            
+            prediction_class = "Abnormal" if is_anomaly else "Normal"
+            
+            logger.info(f"🔄 Fallback prediction: {prediction_class} (confidence: {confidence:.2%})")
+            logger.warning("⚠️ Using basic audio analysis - results may be less accurate")
+            
+            return {
+                "prediction_class": prediction_class,
+                "confidence": confidence,
+                "anomaly_score": float(probability),
+                "anomaly_type": anomaly_type,
+                "tractor_id": tractor_id,
+                "ml_model": "Fallback_Basic_Analysis",
+                "features_count": 3,  # RMS, ZCR, Spectral Centroid
+                "warning": "ML model unavailable - using basic audio analysis"
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Fallback prediction error: {e}")
+            # Return a safe default
+            return {
+                "prediction_class": "Unknown",
+                "confidence": 0.0,
+                "anomaly_score": 0.5,
+                "anomaly_type": None,
+                "tractor_id": tractor_id,
+                "ml_model": "Error_Fallback",
+                "features_count": 0,
+                "error": str(e)
+            }
+    
     def get_model_info(self) -> dict:
         """Get information about the loaded model"""
-        return {
-            "model_name": "ResNet CNN Transfer Learning",
-            "model_loaded": self.model is not None,
-            "model_type": "Deep Learning CNN",
-            "architecture": "ResNet with Focal Loss",
-            "training_data": "MIMII Industrial Sounds + Tractor Audio",
-            "features": {
-                "type": "MFCC Spectrograms",
-                "n_mfcc": self.CONFIG["n_mfcc"],
-                "timesteps": self.CONFIG["max_len"],
-                "total_features": self.CONFIG["n_mfcc"] * self.CONFIG["max_len"]
-            },
-            "preprocessing": {
-                "sample_rate": self.CONFIG["sample_rate"],
-                "duration": self.CONFIG["duration"],
-                "highpass_filter": self.CONFIG["apply_highpass"]
-            },
-            "classes": ["Normal", "Abnormal"],
-            "anomaly_types": [
-                "minor_anomaly (0.5-0.6)",
-                "unusual_noise (0.6-0.75)",
-                "high_vibration (0.75-0.9)",
-                "critical_anomaly (>0.9)"
-            ],
-            "source": "Google Drive",
-            "file_id": self.RESNET_DRIVE_ID
-        }
+        if self.model is not None:
+            return {
+                "model_name": "ResNet CNN Transfer Learning",
+                "model_loaded": True,
+                "model_type": "Deep Learning CNN",
+                "architecture": "ResNet with Focal Loss",
+                "training_data": "MIMII Industrial Sounds + Tractor Audio",
+                "features": {
+                    "type": "MFCC Spectrograms",
+                    "n_mfcc": self.CONFIG["n_mfcc"],
+                    "timesteps": self.CONFIG["max_len"],
+                    "total_features": self.CONFIG["n_mfcc"] * self.CONFIG["max_len"]
+                },
+                "preprocessing": {
+                    "sample_rate": self.CONFIG["sample_rate"],
+                    "duration": self.CONFIG["duration"],
+                    "highpass_filter": self.CONFIG["apply_highpass"]
+                },
+                "classes": ["Normal", "Abnormal"],
+                "anomaly_types": [
+                    "minor_anomaly (0.5-0.6)",
+                    "unusual_noise (0.6-0.75)",
+                    "high_vibration (0.75-0.9)",
+                    "critical_anomaly (>0.9)"
+                ],
+                "source": "Google Drive",
+                "file_id": self.RESNET_DRIVE_ID
+            }
+        else:
+            return {
+                "model_name": "Fallback Basic Audio Analysis",
+                "model_loaded": False,
+                "model_type": "Basic Signal Processing",
+                "architecture": "RMS + Zero Crossing Rate + Spectral Centroid",
+                "training_data": "Heuristic Rules",
+                "features": {
+                    "type": "Basic Audio Features",
+                    "features": ["RMS Energy", "Zero Crossing Rate", "Spectral Centroid"],
+                    "total_features": 3
+                },
+                "preprocessing": {
+                    "sample_rate": self.CONFIG["sample_rate"],
+                    "duration": self.CONFIG["duration"]
+                },
+                "classes": ["Normal", "Abnormal", "Unknown"],
+                "anomaly_types": [
+                    "minor_anomaly",
+                    "high_vibration"
+                ],
+                "warning": "ML model unavailable - using fallback analysis",
+                "note": "Reduced accuracy compared to ML model"
+            }
 
 
 # Create a global instance
