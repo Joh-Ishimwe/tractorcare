@@ -104,7 +104,7 @@ class MLService:
         try:
             logger.info("🔍 Checking for ResNet model...")
             
-            model_path = self.model_dir / "tractor_resnet_transfer.h5"
+            model_path = self.model_dir / "resnet_like_cnn.h5"
             
             # Try to find model in multiple locations (for production compatibility)
             possible_paths = [
