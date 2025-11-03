@@ -43,7 +43,6 @@ class MLService:
     """Machine Learning service using ResNet CNN Transfer Learning"""
     
     # Google Drive file ID for  model
-    # RESNET_DRIVE_ID = "17OnJBfLt21PAbESv2-krhYZ0X2YbRcyc"
     RESNET_DRIVE_ID = "1afNUV4GBuUwYYzqECAJhjUsZFXDh3CqB"
     
     # ResNet model configuration
@@ -97,7 +96,6 @@ class MLService:
         try:
             logger.info("🔍 Checking for ResNet model...")
             
-            # model_path = self.model_dir / "tractor_resnet_final.keras"
             model_path = self.model_dir / "tractor_resnet_transfer.h5"
 
             
