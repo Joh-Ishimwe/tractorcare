@@ -16,8 +16,14 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Middleware to add security headers to all API responses"""
     
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        # Handle OPTIONS requests early to prevent CORS issues
+        if request.method == "OPTIONS":
+            response = await call_next(request)
+            return response
+        
         response = await call_next(request)
         
+        # Add security headers
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
@@ -30,11 +36,12 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 "style-src 'self' 'unsafe-inline'; "
                 "img-src 'self' data: https:; "
                 "font-src 'self' data:; "
-                "connect-src 'self' https://tractorcare-backend.onrender.com; "
+                "connect-src 'self' https://tractorcare-backend.onrender.com https://tractorcare.onrender.com https://tractorcare-info.onrender.com; "
                 "frame-ancestors 'none'"
             )
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
         
+        # Remove server header for security
         if "server" in response.headers:
             del response.headers["server"]
         

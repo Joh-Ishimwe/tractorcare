@@ -14,6 +14,13 @@ router = APIRouter()
 settings = get_settings()
 
 
+@router.options("/login")
+@router.options("/register")
+async def preflight_handler():
+    """Handle CORS preflight requests for auth endpoints"""
+    return {"message": "OK"}
+
+
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(user_data: UserCreate):
     """Register a new user account"""

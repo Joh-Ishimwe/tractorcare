@@ -50,8 +50,7 @@ app = FastAPI(
     openapi_url="/openapi.json"
 )
 
-app.add_middleware(SecurityHeadersMiddleware)
-
+# Add CORS middleware first (before security middleware)
 allowed_origins = settings.allowed_origins_list
 logger.info(f"🌐 Allowed CORS origins: {allowed_origins}")
 
@@ -59,18 +58,24 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins if allowed_origins else ["*"],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
     allow_headers=[
+        "Accept",
+        "Accept-Language",
+        "Content-Language",
         "Content-Type",
         "Authorization",
-        "Accept",
-        "Origin",
         "X-Requested-With",
         "X-CSRF-Token",
+        "Access-Control-Request-Method",
+        "Access-Control-Request-Headers"
     ],
     expose_headers=["Content-Type", "Authorization"],
-    max_age=3600,
+    max_age=86400,  # 24 hours
 )
+
+# Add security headers after CORS
+app.add_middleware(SecurityHeadersMiddleware)
 
 
 @app.exception_handler(Exception)
