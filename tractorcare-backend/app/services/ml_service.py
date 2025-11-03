@@ -43,7 +43,7 @@ class MLService:
     """Machine Learning service using ResNet CNN Transfer Learning"""
     
     # Google Drive file ID for  model
-    RESNET_DRIVE_ID = "1afNUV4GBuUwYYzqECAJhjUsZFXDh3CqB"
+    RESNET_DRIVE_ID = "1L3vX5YXBIgoDip_9NGIlF0zTN-qlOLW6"
     
     # ResNet model configuration
     CONFIG = {
@@ -109,9 +109,9 @@ class MLService:
             # Try to find model in multiple locations (for production compatibility)
             possible_paths = [
                 model_path,
-                Path("tractor_resnet_transfer.h5"),  # Root directory
-                Path("temp_models") / "tractor_resnet_transfer.h5",  # Explicit temp_models
-                Path("app") / "temp_models" / "tractor_resnet_transfer.h5",  # App subdirectory
+                Path("resnet_like_cnn.h5"),  # Root directory
+                Path("temp_models") / "resnet_like_cnn.h5",  # Explicit temp_models
+                Path("app") / "temp_models" / "resnet_like_cnn.h5",  # App subdirectory
             ]
             
             model_found = False
@@ -338,7 +338,7 @@ class MLService:
             logger.error(f"❌ Fallback prediction error: {e}")
             # Return a safe default
             return {
-                "prediction_class": "Unknown",
+                "prediction_class": "Abnormal",
                 "confidence": 0.0,
                 "anomaly_score": 0.5,
                 "anomaly_type": None,
@@ -394,7 +394,7 @@ class MLService:
                     "sample_rate": self.CONFIG["sample_rate"],
                     "duration": self.CONFIG["duration"]
                 },
-                "classes": ["Normal", "Abnormal", "Unknown"],
+                "classes": ["Normal", "Abnormal"],
                 "anomaly_types": [
                     "minor_anomaly",
                     "high_vibration"
