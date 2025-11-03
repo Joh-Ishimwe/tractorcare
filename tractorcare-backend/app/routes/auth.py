@@ -3,7 +3,7 @@ Authentication Routes
 User registration, login, and profile management
 """
 
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends, Response
 from datetime import timedelta
 from app.schemas import UserCreate, UserLogin, UserResponse, Token
 from app.models import User
@@ -82,6 +82,12 @@ async def login(credentials: UserLogin):
     )
     
     return Token(access_token=access_token)
+
+
+@router.options("/login")
+async def login_preflight() -> Response:
+    """Explicit CORS preflight handler for login endpoint"""
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/me", response_model=UserResponse)

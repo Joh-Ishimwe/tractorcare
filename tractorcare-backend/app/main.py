@@ -58,18 +58,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins if allowed_origins else ["*"],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
-    allow_headers=[
-        "Accept",
-        "Accept-Language",
-        "Content-Language",
-        "Content-Type",
-        "Authorization",
-        "X-Requested-With",
-        "X-CSRF-Token",
-        "Access-Control-Request-Method",
-        "Access-Control-Request-Headers"
-    ],
+    # Accept all methods and headers to prevent preflight 400s from custom headers
+    allow_methods=["*"],
+    allow_headers=["*"],
     expose_headers=["Content-Type", "Authorization"],
     max_age=86400,  # 24 hours
 )

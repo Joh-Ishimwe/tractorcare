@@ -58,6 +58,9 @@ class ApiService {
     AppConfig.log('📧 Email: $email');
     
     try {
+      // Test connectivity first
+      AppConfig.log('🌐 Testing network connectivity...');
+      
       final response = await http.post(
         Uri.parse(loginUrl),
         headers: _getHeaders(includeAuth: false),
@@ -65,22 +68,37 @@ class ApiService {
       ).timeout(
         Duration(seconds: AppConfig.apiTimeout),
         onTimeout: () {
-          throw Exception('Connection timeout - Please check your internet connection');
+          AppConfig.logError('⏰ Request timed out after ${AppConfig.apiTimeout} seconds');
+          throw Exception('Connection timeout - Server took too long to respond. Please try again.');
         },
       );
       
       AppConfig.log('📡 Response status: ${response.statusCode}');
+      AppConfig.log('📄 Response headers: ${response.headers}');
       AppConfig.log('📄 Response body: ${response.body}');
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         AppConfig.logSuccess('✅ Login successful!');
         return data;
+      } else if (response.statusCode == 401) {
+        throw Exception('Invalid email or password. Please check your credentials.');
+      } else if (response.statusCode >= 500) {
+        throw Exception('Server error (${response.statusCode}). Please try again later.');
       } else {
-        throw Exception('Login failed with status ${response.statusCode}: ${response.body}');
+        throw Exception('Login failed: ${response.body}');
       }
+    } on http.ClientException catch (e) {
+      AppConfig.logError('❌ Network error: $e');
+      throw Exception('Network connection failed. Please check your internet connection and try again.');
+    } on FormatException catch (e) {
+      AppConfig.logError('❌ Response parsing error: $e');
+      throw Exception('Invalid response from server. Please try again.');
     } catch (e) {
       AppConfig.logError('❌ Login error: $e');
+      if (e.toString().contains('Failed to fetch') || e.toString().contains('XMLHttpRequest error')) {
+        throw Exception('Network request failed. This might be a CORS issue. Please contact support.');
+      }
       rethrow;
     }
   }
