@@ -146,19 +146,19 @@ class _CustomAppBarState extends State<CustomAppBar> {
           // TractorCare Logo
           Image.asset(
             'assets/images/logo.png',
-            width: 32,
-            height: 32,
+            width: 42,
+            height: 42,
             fit: BoxFit.contain,
           ),
-          const SizedBox(width: 8),
-          const Text(
-            'Care',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF333333),
-            ),
-          ),
+          // const SizedBox(width: 8),
+          // const Text(
+          //   'Care',
+          //   style: TextStyle(
+          //     fontSize: 20,
+          //     fontWeight: FontWeight.bold,
+          //     color: Color(0xFF333333),
+          //   ),
+          // ),
         ],
       ),
       centerTitle: false,

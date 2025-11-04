@@ -21,7 +21,10 @@ class _TractorListScreenState extends State<TractorListScreen> {
   @override
   void initState() {
     super.initState();
-    _loadTractors();
+    // Defer the loading to after the initial build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadTractors();
+    });
   }
 
   Future<void> _loadTractors() async {
@@ -201,10 +204,15 @@ class _TractorListScreenState extends State<TractorListScreen> {
       margin: const EdgeInsets.only(bottom: 12),
       child: InkWell(
         onTap: () {
+          print('🚜 Tractor List: Navigating to tractor detail');
+          print('   - Tractor ID (tractorId): ${tractor.tractorId}');
+          print('   - Database ID (id): ${tractor.id}');
+          print('   - Using tractorId for navigation: ${tractor.tractorId}');
+          
           Navigator.pushNamed(
             context,
             '/tractor-detail',
-            arguments: tractor.id,
+            arguments: tractor.tractorId,
           ).then((_) {
             _loadTractors();
           });
@@ -363,68 +371,6 @@ class _TractorListScreenState extends State<TractorListScreen> {
     );
   }
 
-  void _showFilterDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Filter Tractors'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            RadioListTile<String>(
-              title: const Text('All Tractors'),
-              value: 'all',
-              groupValue: _filterStatus,
-              onChanged: (value) {
-                setState(() => _filterStatus = value!);
-                Navigator.pop(context);
-              },
-            ),
-            RadioListTile<String>(
-              title: const Text('Good Condition'),
-              value: 'good',
-              groupValue: _filterStatus,
-              onChanged: (value) {
-                setState(() => _filterStatus = value!);
-                Navigator.pop(context);
-              },
-            ),
-            RadioListTile<String>(
-              title: const Text('Warning'),
-              value: 'warning',
-              groupValue: _filterStatus,
-              onChanged: (value) {
-                setState(() => _filterStatus = value!);
-                Navigator.pop(context);
-              },
-            ),
-            RadioListTile<String>(
-              title: const Text('Critical'),
-              value: 'critical',
-              groupValue: _filterStatus,
-              onChanged: (value) {
-                setState(() => _filterStatus = value!);
-                Navigator.pop(context);
-              },
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              setState(() => _filterStatus = 'all');
-              Navigator.pop(context);
-            },
-            child: const Text('Reset'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
 
   Color _getStatusColor(TractorStatus status) {
     switch (status) {

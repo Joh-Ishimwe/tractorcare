@@ -1,8 +1,10 @@
 ﻿import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import '../config/app_config.dart';
 import '../models/tractor.dart';
+import '../models/tractor_summary.dart';
 import '../models/audio_prediction.dart';
 import '../models/maintenance.dart';
 import 'storage_service.dart';
@@ -185,7 +187,17 @@ class ApiService {
     if (_token != null) {
       AppConfig.log('🔑 Token preview: ${_token!.substring(0, 20)}...');
     }
-    AppConfig.log('📊 Data: $tractorData');
+    
+    // Ensure the data matches backend expectations
+    final formattedData = {
+      'tractor_id': tractorData['tractor_id'],
+      'model': tractorData['model'],
+      'purchase_date': tractorData['purchase_date'] ?? DateTime.now().toIso8601String(),
+      'engine_hours': tractorData['engine_hours'] ?? 0,
+      'usage_intensity': tractorData['usage_intensity'] ?? 'moderate',
+    };
+    
+    AppConfig.log('📊 Formatted data: $formattedData');
     
     try {
       final headers = _getHeaders();
@@ -194,7 +206,7 @@ class ApiService {
       final response = await http.post(
         Uri.parse(AppConfig.getApiUrl('${AppConfig.tractorsEndpoint}/')),
         headers: headers,
-        body: json.encode(tractorData),
+        body: json.encode(formattedData),
       ).timeout(Duration(seconds: AppConfig.apiTimeout));
       
       AppConfig.log('📡 Create response status: ${response.statusCode}');
@@ -613,9 +625,11 @@ class ApiService {
     required String tractorId,
     int targetSamples = 5,
   }) async {
+    AppConfig.log('🎯 Starting baseline collection for tractor: $tractorId');
     try {
+      final url = AppConfig.getApiUrl('${AppConfig.baselineEndpoint}/$tractorId/start');
       final response = await http.post(
-        Uri.parse('$baseUrl/baseline/$tractorId/start').replace(queryParameters: {
+        Uri.parse(url).replace(queryParameters: {
           'target_samples': targetSamples.toString(),
         }),
         headers: _getHeaders(),
@@ -634,25 +648,39 @@ class ApiService {
 
   Future<Map<String, dynamic>> addBaselineSample({
     required String tractorId,
-    required File audioFile,
+    File? audioFile,
+    Uint8List? audioBytes,
+    String? fileName,
   }) async {
+    AppConfig.log('🎵 Adding baseline sample for tractor: $tractorId');
     try {
       // Create multipart request
+      final url = AppConfig.getApiUrl('${AppConfig.baselineEndpoint}/$tractorId/add-sample');
       var request = http.MultipartRequest(
         'POST',
-        Uri.parse('$baseUrl/baseline/$tractorId/add-sample'),
+        Uri.parse(url),
       );
 
-      // Add authorization header
-      if (_token != null) {
-        request.headers['Authorization'] = 'Bearer $_token';
-      }
+      // Add authorization header using AppConfig
+      request.headers.addAll(_getMultipartHeaders());
 
-      // Add the audio file
-      request.files.add(await http.MultipartFile.fromPath(
-        'file',
-        audioFile.path,
-      ));
+      // Add the audio file - handle both mobile and web
+      if (audioFile != null) {
+        // Mobile/Desktop - use file path
+        request.files.add(await http.MultipartFile.fromPath(
+          'file',
+          audioFile.path,
+        ));
+      } else if (audioBytes != null && fileName != null) {
+        // Web - use bytes
+        request.files.add(http.MultipartFile.fromBytes(
+          'file',
+          audioBytes,
+          filename: fileName,
+        ));
+      } else {
+        throw Exception('Either audioFile or audioBytes must be provided');
+      }
 
       // Send request
       final streamedResponse = await request.send();
@@ -669,11 +697,20 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> finalizeBaseline(String tractorId) async {
+  Future<Map<String, dynamic>> finalizeBaseline(String baselineId, [Map<String, dynamic>? additionalData]) async {
+    AppConfig.log('✅ Finalizing baseline: $baselineId with data: $additionalData');
     try {
+      final url = AppConfig.getApiUrl('${AppConfig.baselineEndpoint}/$baselineId/finalize');
+      
+      final body = <String, dynamic>{};
+      if (additionalData != null) {
+        body.addAll(additionalData);
+      }
+      
       final response = await http.post(
-        Uri.parse('$baseUrl/baseline/$tractorId/finalize'),
+        Uri.parse(url),
         headers: _getHeaders(),
+        body: json.encode(body),
       );
 
       if (response.statusCode == 200) {
@@ -687,10 +724,36 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> getBaselineStatus(String tractorId) async {
+  Future<List<Map<String, dynamic>>> getBaselineHistory(String tractorId) async {
+    AppConfig.log('📊 Getting baseline history for tractor: $tractorId');
     try {
+      final url = AppConfig.getApiUrl('${AppConfig.baselineEndpoint}/$tractorId/history');
       final response = await http.get(
-        Uri.parse('$baseUrl/baseline/$tractorId/status'),
+        Uri.parse(url),
+        headers: _getHeaders(),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['baselines'] != null) {
+          return List<Map<String, dynamic>>.from(data['baselines']);
+        }
+        return [];
+      } else {
+        throw Exception('Failed to get baseline history: ${response.body}');
+      }
+    } catch (e) {
+      print('Baseline history error: $e');
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> getBaselineStatus(String tractorId) async {
+    AppConfig.log('📊 Getting baseline status for tractor: $tractorId');
+    try {
+      final url = AppConfig.getApiUrl('${AppConfig.baselineEndpoint}/$tractorId/status');
+      final response = await http.get(
+        Uri.parse(url),
         headers: _getHeaders(),
       );
 
@@ -803,19 +866,32 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> getTractorSummary(String tractorId) async {
+  Future<TractorSummary> getTractorSummary(String tractorId) async {
+    await ensureTokenLoaded();
+    
+    final summaryUrl = AppConfig.getApiUrl('${AppConfig.tractorsEndpoint}/$tractorId/summary');
+    AppConfig.log('📊 Fetching tractor summary: $tractorId from $summaryUrl');
+    
     try {
       final response = await http.get(
-        Uri.parse('$baseUrl${AppConfig.tractorsEndpoint}/$tractorId/summary'),
+        Uri.parse(summaryUrl),
         headers: _getHeaders(),
-      );
+      ).timeout(Duration(seconds: AppConfig.apiTimeout));
+      
+      AppConfig.log('📡 Summary response status: ${response.statusCode}');
+      AppConfig.log('📄 Summary response body: ${response.body}');
       
       if (response.statusCode == 200) {
-        return json.decode(response.body);
+        AppConfig.logSuccess('✅ Tractor summary retrieved successfully');
+        return TractorSummary.fromJson(json.decode(response.body));
+      } else if (response.statusCode == 401) {
+        throw Exception('Authentication failed - Please login again');
+      } else if (response.statusCode == 404) {
+        throw Exception('Tractor not found: $tractorId');
       }
-      throw Exception('Failed to get tractor summary');
+      throw Exception('Failed to get tractor summary - Status: ${response.statusCode}');
     } catch (e) {
-      AppConfig.logError('Get tractor summary error', e);
+      AppConfig.logError('❌ Get tractor summary error', e);
       rethrow;
     }
   }
@@ -833,6 +909,51 @@ class ApiService {
       throw Exception('Failed to get user statistics');
     } catch (e) {
       AppConfig.logError('Get user statistics error', e);
+      rethrow;
+    }
+  }
+
+  // Test method to verify T007 tractor connectivity
+  Future<void> testTractorT007() async {
+    AppConfig.log('🧪 Testing T007 tractor endpoints...');
+    
+    try {
+      // Test get specific tractor
+      final tractor = await getTractor('T007');
+      AppConfig.logSuccess('✅ GET /tractors/T007 - Success: ${tractor.model}');
+      
+      // Test get tractor summary
+      final summary = await getTractorSummary('T007');
+      AppConfig.logSuccess('✅ GET /tractors/T007/summary - Success: Health score ${summary.healthScore}');
+      
+      // Test baseline status
+      final baselineStatus = await getBaselineStatus('T007');
+      AppConfig.logSuccess('✅ GET /baseline/T007/status - Success: ${baselineStatus['baseline_status']}');
+      
+      AppConfig.logSuccess('🎉 All T007 endpoints working correctly!');
+    } catch (e) {
+      AppConfig.logError('❌ T007 test failed', e);
+      rethrow;
+    }
+  }
+
+  // Test baseline API compatibility
+  Future<Map<String, dynamic>> testBaselineUpload(String tractorId) async {
+    AppConfig.log('🧪 Testing baseline API format for tractor: $tractorId');
+    
+    try {
+      // First check if baseline exists and get status
+      final status = await getBaselineStatus(tractorId);
+      AppConfig.log('📊 Current baseline status: ${status['baseline_status']}');
+      
+      return {
+        'status': 'ready_for_upload',
+        'tractor_id': tractorId,
+        'baseline_status': status['baseline_status'],
+        'message': 'Baseline API ready for file upload'
+      };
+    } catch (e) {
+      AppConfig.logError('❌ Baseline test failed', e);
       rethrow;
     }
   }

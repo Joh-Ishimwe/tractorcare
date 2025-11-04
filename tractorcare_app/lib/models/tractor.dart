@@ -12,8 +12,12 @@ class Tractor {
   final String tractorId;
   final String userId;
   final String model;
+  final String? make;
   final double engineHours;
   final int? purchaseYear;
+  final DateTime? purchaseDate;
+  final String? usageIntensity;
+  final String? baselineStatus;
   final String? notes;
   final bool isActive;
   final DateTime createdAt;
@@ -27,8 +31,12 @@ class Tractor {
     required this.tractorId,
     required this.userId,
     required this.model,
+    this.make,
     required this.engineHours,
     this.purchaseYear,
+    this.purchaseDate,
+    this.usageIntensity,
+    this.baselineStatus,
     this.notes,
     this.isActive = true,
     required this.createdAt,
@@ -50,8 +58,12 @@ class Tractor {
       tractorId: json['tractor_id'] ?? '',
       userId: json['owner_id'] ?? json['user_id'] ?? '',
       model: json['model'] ?? '',
+      make: json['make'],
       engineHours: (json['engine_hours'] ?? 0).toDouble(),
       purchaseYear: json['purchase_year'] ?? (purchaseDateStr != null ? DateTime.parse(purchaseDateStr).year : null),
+      purchaseDate: purchaseDateStr != null ? DateTime.parse(purchaseDateStr) : null,
+      usageIntensity: json['usage_intensity'],
+      baselineStatus: json['baseline_status'],
       notes: json['notes'],
       isActive: json['is_active'] ?? true,
       createdAt: createdAtStr != null ? DateTime.parse(createdAtStr) : DateTime.now(),
@@ -71,10 +83,15 @@ class Tractor {
     final s = statusValue?.toString().toLowerCase();
     switch (s) {
       case 'good':
+      case 'excellent':
         return TractorStatus.good;
       case 'warning':
+      case 'fair':
+      case 'moderate':
         return TractorStatus.warning;
       case 'critical':
+      case 'poor':
+      case 'bad':
         return TractorStatus.critical;
       default:
         return TractorStatus.unknown;
@@ -86,15 +103,19 @@ class Tractor {
     return {
       'id': id,
       'tractor_id': tractorId,
-      'user_id': userId,
+      'owner_id': userId,
       'model': model,
+      'make': make,
       'engine_hours': engineHours,
       'purchase_year': purchaseYear,
+      'purchase_date': purchaseDate?.toIso8601String(),
+      'usage_intensity': usageIntensity,
+      'baseline_status': baselineStatus,
       'notes': notes,
       'is_active': isActive,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt?.toIso8601String(),
-      'status': status.name,
+      'health_status': status.name,
       'last_check_date': lastCheckDate?.toIso8601String(),
       'has_baseline': hasBaseline,
     };
@@ -106,8 +127,12 @@ class Tractor {
     String? tractorId,
     String? userId,
     String? model,
+    String? make,
     double? engineHours,
     int? purchaseYear,
+    DateTime? purchaseDate,
+    String? usageIntensity,
+    String? baselineStatus,
     String? notes,
     bool? isActive,
     DateTime? createdAt,
@@ -121,8 +146,12 @@ class Tractor {
       tractorId: tractorId ?? this.tractorId,
       userId: userId ?? this.userId,
       model: model ?? this.model,
+      make: make ?? this.make,
       engineHours: engineHours ?? this.engineHours,
       purchaseYear: purchaseYear ?? this.purchaseYear,
+      purchaseDate: purchaseDate ?? this.purchaseDate,
+      usageIntensity: usageIntensity ?? this.usageIntensity,
+      baselineStatus: baselineStatus ?? this.baselineStatus,
       notes: notes ?? this.notes,
       isActive: isActive ?? this.isActive,
       createdAt: createdAt ?? this.createdAt,

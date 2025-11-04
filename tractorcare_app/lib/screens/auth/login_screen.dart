@@ -152,6 +152,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 
                 // Email or Phone Field
                 TextFormField(
+                  key: const Key('email_field'),
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
                   decoration: InputDecoration(
@@ -185,6 +186,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 
                 // Password Field
                 TextFormField(
+                  key: const Key('password_field'),
                   controller: _passwordController,
                   obscureText: !_isPasswordVisible,
                   decoration: InputDecoration(

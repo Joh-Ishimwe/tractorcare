@@ -471,10 +471,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   subtitle: Text(tractor.model),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () {
+                    print('🚜 Dashboard: Navigating to tractor detail');
+                    print('   - Tractor ID (tractorId): ${tractor.tractorId}');
+                    print('   - Database ID (id): ${tractor.id}');
+                    print('   - Using tractorId for navigation: ${tractor.tractorId}');
+                    
                     Navigator.pushNamed(
                       context,
                       '/tractor-detail',
-                      arguments: tractor.id,
+                      arguments: tractor.tractorId,
                     );
                   },
                 ),

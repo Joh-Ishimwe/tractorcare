@@ -8,6 +8,7 @@ import 'package:fl_chart/fl_chart.dart';
 import '../../providers/tractor_provider.dart';
 import '../../providers/audio_provider.dart';
 import '../../models/tractor.dart';
+import '../../models/tractor_summary.dart';
 import '../../config/colors.dart';
 import '../../services/api_service.dart';
 import '../usage/usage_history_screen.dart';
@@ -32,6 +33,17 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
     super.didChangeDependencies();
     if (_tractorId == null) {
       _tractorId = ModalRoute.of(context)!.settings.arguments as String;
+      
+      print('🔍 Tractor Detail Screen: Received ID: $_tractorId');
+      print('   - Length: ${_tractorId!.length}');
+      print('   - Is ObjectID format (24 hex chars): ${_tractorId!.length == 24 && RegExp(r'^[0-9a-fA-F]{24}$').hasMatch(_tractorId!)}');
+      print('   - Is TractorID format (starts with T): ${_tractorId!.startsWith('T')}');
+      
+      if (_tractorId!.length == 24 && RegExp(r'^[0-9a-fA-F]{24}$').hasMatch(_tractorId!)) {
+        print('⚠️ WARNING: Received ObjectID format, this will cause 404 errors!');
+        print('   Expected format: T007, T001, etc.');
+      }
+      
       // Defer loading until after first frame to avoid notifying listeners during build
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
@@ -67,17 +79,22 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
     try {
       final summary = await _apiService.getTractorSummary(_tractorId!);
       Map<String, dynamic>? nextTask;
-      if (summary['alerts'] is List) {
-        final List alerts = List.from(summary['alerts']);
-        alerts.sort((a, b) {
-          final ad = DateTime.tryParse(a['due_date'].toString()) ?? DateTime.now();
-          final bd = DateTime.tryParse(b['due_date'].toString()) ?? DateTime.now();
+      
+      // Sort alerts by due date and get the next task
+      final alerts = summary.alerts;
+      if (alerts.isNotEmpty) {
+        // Create a mutable copy for sorting
+        final sortedAlerts = List<MaintenanceAlert>.from(alerts);
+        sortedAlerts.sort((a, b) {
+          final ad = a.dueDate ?? DateTime.now().add(const Duration(days: 365));
+          final bd = b.dueDate ?? DateTime.now().add(const Duration(days: 365));
           return ad.compareTo(bd);
         });
-        nextTask = alerts.isNotEmpty ? Map<String, dynamic>.from(alerts.first) : null;
+        nextTask = sortedAlerts.first.toJson();
       }
+      
       setState(() {
-        _summary = Map<String, dynamic>.from(summary);
+        _summary = summary.toJson(); // Convert TractorSummary to Map for compatibility
         _nextTask = nextTask;
       });
     } catch (e) {
@@ -382,10 +399,21 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                   label: 'Setup Baseline',
                   color: AppColors.info,
                   onTap: () {
+                    // Debug: Print both IDs to see the difference
+                    print('🔍 Tractor Debug Info:');
+                    print('  - Database ID: ${tractor.id}');
+                    print('  - Tractor ID: ${tractor.tractorId}');
+                    print('  - Model: ${tractor.model}');
+                    
+                    // Pass the tractor data with proper tractor ID format
                     Navigator.pushNamed(
                       context,
                       '/baseline-collection',
-                      arguments: tractor.tractorId,
+                      arguments: {
+                        'tractorId': tractor.tractorId, // Use actual tractor ID (like T007)
+                        'tractorHours': tractor.engineHours,
+                        'model': tractor.model,
+                      },
                     );
                   },
                 ),

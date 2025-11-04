@@ -8,7 +8,7 @@ import '../../widgets/custom_button.dart';
 import '../../widgets/custom_card.dart';
 
 class BaselineSetupScreen extends StatefulWidget {
-  const BaselineSetupScreen({Key? key}) : super(key: key);
+  const BaselineSetupScreen({super.key});
 
   @override
   State<BaselineSetupScreen> createState() => _BaselineSetupScreenState();
@@ -162,7 +162,7 @@ class _BaselineSetupScreenState extends State<BaselineSetupScreen> {
 
                 return Column(
                   children: provider.tractors.map((tractor) {
-                    final isSelected = _selectedTractorId == tractor.id;
+                    final isSelected = _selectedTractorId == tractor.tractorId;
                     return CustomCard(
                       margin: const EdgeInsets.only(bottom: 12),
                       color: isSelected
@@ -170,13 +170,13 @@ class _BaselineSetupScreenState extends State<BaselineSetupScreen> {
                           : null,
                       onTap: () {
                         setState(() {
-                          _selectedTractorId = tractor.id;
+                          _selectedTractorId = tractor.tractorId;
                         });
                       },
                       child: Row(
                         children: [
                           Radio<String>(
-                            value: tractor.id,
+                            value: tractor.tractorId,
                             groupValue: _selectedTractorId,
                             onChanged: (value) {
                               setState(() {
