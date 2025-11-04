@@ -9,7 +9,7 @@ import '../../services/api_service.dart';
 import '../../config/colors.dart';
 
 class MaintenanceListScreen extends StatefulWidget {
-  const MaintenanceListScreen({Key? key}) : super(key: key);
+  const MaintenanceListScreen({super.key});
 
   @override
   State<MaintenanceListScreen> createState() => _MaintenanceListScreenState();
@@ -43,15 +43,10 @@ class _MaintenanceListScreenState extends State<MaintenanceListScreen>
     await tractorProvider.fetchTractors();
     
     if (tractorProvider.tractors.isNotEmpty && _selectedTractorId == null) {
-      // Use tractor_id (like "T005") not database id
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        if (mounted) {
-          setState(() {
-            _selectedTractorId = tractorProvider.tractors.first.tractorId;
-          });
-          await _loadMaintenance();
-        }
+      setState(() {
+        _selectedTractorId = tractorProvider.tractors.first.id;
       });
+      await _loadMaintenance();
     }
   }
 
@@ -207,7 +202,7 @@ class _MaintenanceListScreenState extends State<MaintenanceListScreen>
                     icon: const Icon(Icons.arrow_drop_down),
                     items: provider.tractors.map((Tractor tractor) {
                       return DropdownMenuItem<String>(
-                        value: tractor.tractorId, // Use tractor_id not database id
+                        value: tractor.id,
                         child: Row(
                           children: [
                             Text(tractor.statusIcon),

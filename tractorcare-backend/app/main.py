@@ -56,10 +56,9 @@ logger.info(f"🌐 Allowed CORS origins: {allowed_origins}")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins if allowed_origins else ["*"],
+    allow_origins=["*"],  # Allow all origins for now
     allow_credentials=True,
-    # Accept all methods and headers to prevent preflight 400s from custom headers
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
     expose_headers=["Content-Type", "Authorization"],
     max_age=86400,  # 24 hours

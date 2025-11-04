@@ -8,10 +8,10 @@ class BottomNav extends StatelessWidget {
   final Function(int) onTap;
 
   const BottomNav({
-    Key? key,
+    super.key,
     required this.currentIndex,
     required this.onTap,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -57,11 +57,6 @@ class BottomNav extends StatelessWidget {
             activeIcon: Icon(Icons.build),
             label: 'Maintenance',
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            activeIcon: Icon(Icons.person),
-            label: 'Profile',
-          ),
         ],
       ),
     );
@@ -76,13 +71,13 @@ class CustomBottomNavItem extends StatelessWidget {
   final VoidCallback onTap;
 
   const CustomBottomNavItem({
-    Key? key,
+    super.key,
     required this.icon,
     required this.activeIcon,
     required this.label,
     required this.isActive,
     required this.onTap,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

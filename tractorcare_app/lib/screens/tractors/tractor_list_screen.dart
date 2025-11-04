@@ -4,10 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/tractor_provider.dart';
 import '../../models/tractor.dart';
+import '../../widgets/custom_app_bar.dart';
 import '../../config/colors.dart';
 
 class TractorListScreen extends StatefulWidget {
-  const TractorListScreen({Key? key}) : super(key: key);
+  const TractorListScreen({super.key});
 
   @override
   State<TractorListScreen> createState() => _TractorListScreenState();
@@ -47,14 +48,9 @@ class _TractorListScreenState extends State<TractorListScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: const Text('My Tractors'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.filter_list),
-            onPressed: _showFilterDialog,
-          ),
-        ],
+      appBar: const CustomAppBar(
+        title: 'My Tractors',
+        showBackButton: true,
       ),
       body: Column(
         children: [
@@ -208,7 +204,7 @@ class _TractorListScreenState extends State<TractorListScreen> {
           Navigator.pushNamed(
             context,
             '/tractor-detail',
-            arguments: tractor.tractorId,
+            arguments: tractor.id,
           ).then((_) {
             _loadTractors();
           });

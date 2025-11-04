@@ -10,6 +10,7 @@ import '../../widgets/bottom_nav.dart';
 import '../../widgets/api_connection_test.dart';
 import '../../widgets/auth_debug_widget.dart';
 import '../../widgets/debug_api_widget.dart';
+import '../../widgets/custom_app_bar.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -70,52 +71,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
       case 3:
         Navigator.pushNamed(context, '/maintenance');
         break;
-      case 4:
-        Navigator.pushNamed(context, '/profile');
-        break;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final authProvider = Provider.of<AuthProvider>(context);
-    final user = authProvider.currentUser;
-
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Welcome back,',
-              style: TextStyle(
-                fontSize: 14,
-                color: AppColors.textSecondary,
-                fontWeight: FontWeight.normal,
-              ),
-            ),
-            Text(
-              user?.firstName ?? 'User',
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.notifications_outlined),
-            onPressed: () {
-              // TODO: Show notifications
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Notifications coming soon')),
-              );
-            },
-          ),
-        ],
-      ),
+      appBar: const CustomAppBar(title: 'Dashboard'),
       body: RefreshIndicator(
         onRefresh: _loadData,
         child: SingleChildScrollView(

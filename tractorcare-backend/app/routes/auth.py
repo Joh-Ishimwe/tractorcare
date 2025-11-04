@@ -4,6 +4,7 @@ User registration, login, and profile management
 """
 
 from fastapi import APIRouter, HTTPException, status, Depends, Response
+from fastapi.responses import JSONResponse
 from datetime import timedelta
 from app.schemas import UserCreate, UserLogin, UserResponse, Token
 from app.models import User
@@ -19,7 +20,15 @@ settings = get_settings()
 @router.options("/me")
 async def handle_cors_preflight():
     """Handle CORS preflight requests"""
-    return Response(status_code=200)
+    return JSONResponse(
+        status_code=200,
+        content={"message": "OK"},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
