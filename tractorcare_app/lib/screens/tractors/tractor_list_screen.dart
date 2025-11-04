@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../providers/tractor_provider.dart';
 import '../../models/tractor.dart';
 import '../../widgets/custom_app_bar.dart';
+import '../../widgets/custom_card.dart';
 import '../../config/colors.dart';
 
 class TractorListScreen extends StatefulWidget {
@@ -200,9 +201,15 @@ class _TractorListScreenState extends State<TractorListScreen> {
   }
 
   Widget _buildTractorCard(Tractor tractor) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: InkWell(
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: GradientStatusCard(
+        tractorModel: tractor.model,
+        tractorId: tractor.tractorId,
+        hasStatus: tractor.status != TractorStatus.unknown,
+        hasBaseline: true, // You can add a baseline field to the Tractor model
+        tractorIcon: Icons.agriculture,
+        gradientColors: _getStatusGradient(tractor.status),
         onTap: () {
           print('🚜 Tractor List: Navigating to tractor detail');
           print('   - Tractor ID (tractorId): ${tractor.tractorId}');
@@ -217,107 +224,6 @@ class _TractorListScreenState extends State<TractorListScreen> {
             _loadTractors();
           });
         },
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Row(
-            children: [
-              // Status Icon
-              Container(
-                width: 60,
-                height: 60,
-                decoration: BoxDecoration(
-                  color: _getStatusColor(tractor.status).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Center(
-                  child: Text(
-                    tractor.statusIcon,
-                    style: const TextStyle(fontSize: 28),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 16),
-
-              // Tractor Info
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      tractor.tractorId,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      tractor.model,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.access_time,
-                          size: 14,
-                          color: AppColors.textTertiary,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          tractor.formattedEngineHours,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: AppColors.textTertiary,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Icon(
-                          Icons.calendar_today,
-                          size: 14,
-                          color: AppColors.textTertiary,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          tractor.tractorAge,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: AppColors.textTertiary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-
-              // Status Badge
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: _getStatusColor(tractor.status).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  tractor.statusText,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: _getStatusColor(tractor.status),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -372,16 +278,16 @@ class _TractorListScreenState extends State<TractorListScreen> {
   }
 
 
-  Color _getStatusColor(TractorStatus status) {
+  List<Color> _getStatusGradient(TractorStatus status) {
     switch (status) {
       case TractorStatus.good:
-        return AppColors.success;
+        return AppColors.successGradient;
       case TractorStatus.warning:
-        return AppColors.warning;
+        return AppColors.warningGradient;
       case TractorStatus.critical:
-        return AppColors.error;
+        return AppColors.errorGradient;
       default:
-        return AppColors.textTertiary;
+        return AppColors.primaryGradient;
     }
   }
 }

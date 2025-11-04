@@ -4,7 +4,6 @@
 // import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:fl_chart/fl_chart.dart';
 import '../../providers/tractor_provider.dart';
 import '../../providers/audio_provider.dart';
 import '../../models/tractor.dart';
@@ -23,8 +22,6 @@ class TractorDetailScreen extends StatefulWidget {
 class _TractorDetailScreenState extends State<TractorDetailScreen> {
   String? _tractorId;
   bool _isLoading = true;
-  Map<String, dynamic>? _usageStats;
-  Map<String, dynamic>? _summary; // maintenance summary
   Map<String, dynamic>? _nextTask; // next maintenance task
   final ApiService _apiService = ApiService();
 
@@ -62,19 +59,6 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
     await tractorProvider.getTractor(_tractorId!);
     await audioProvider.fetchPredictions(_tractorId!, limit: 5);
     
-    // Load usage statistics
-    try {
-      final stats = await _apiService.getUsageStats(_tractorId!);
-      if (stats.containsKey('usage_last_7_days') &&
-          stats.containsKey('usage_last_30_days')) {
-        setState(() {
-          _usageStats = stats;
-        });
-      }
-    } catch (e) {
-      print('Error loading usage stats: $e');
-    }
-
     // Load maintenance summary (alerts, next task, etc.)
     try {
       final summary = await _apiService.getTractorSummary(_tractorId!);
@@ -94,7 +78,6 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
       }
       
       setState(() {
-        _summary = summary.toJson(); // Convert TractorSummary to Map for compatibility
         _nextTask = nextTask;
       });
     } catch (e) {
@@ -102,6 +85,15 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
     }
     
     setState(() => _isLoading = false);
+  }
+
+  // Helper method to safely parse double values that might come as strings
+  double? _parseDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
   }
 
   @override
@@ -148,39 +140,24 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                         // Header Card
                         _buildHeaderCard(tractor),
 
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 16),
 
-                        // Quick Actions (up top)
+                        // Quick Actions 
                         _buildQuickActions(tractor),
 
-                        const SizedBox(height: 16),
-
-                        // Maintenance Summary (stats cards)
-                        _buildMaintenanceSummary(),
-
-                        const SizedBox(height: 16),
-
-                        // Next Maintenance
-                        _buildNextMaintenanceCard(),
-
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 24),
 
                         // Info Card
                         _buildInfoCard(tractor),
 
                         const SizedBox(height: 16),
 
-                        // Current Hours Display
-                        _buildCurrentHoursCard(tractor),
+                        // Maintenance alerts
+                        _buildMaintenanceAlertsCard(),
 
                         const SizedBox(height: 16),
 
-                        // Usage Statistics
-                        _buildUsageStatsCard(),
-
-                        const SizedBox(height: 16),
-
-                        // Usage History Preview
+                        // Usage History
                         _buildUsageHistoryCard(),
 
                         const SizedBox(height: 16),
@@ -194,60 +171,133 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
   }
 
   Widget _buildHeaderCard(Tractor tractor) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(24.0),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            _getStatusColor(tractor.status),
-            _getStatusColor(tractor.status).withOpacity(0.7),
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20.0),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: AppColors.successGradient,
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.success.withOpacity(0.3),
+              blurRadius: 12,
+              offset: const Offset(0, 6),
+            ),
           ],
         ),
-      ),
-      child: Column(
-        children: [
-          Text(
-            tractor.statusIcon,
-            style: const TextStyle(fontSize: 64),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            tractor.tractorId,
-            style: const TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            tractor.model,
-            style: const TextStyle(
-              fontSize: 18,
-              color: Colors.white,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 20,
-              vertical: 8,
-            ),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Text(
-              tractor.statusText,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
+        child: Row(
+          children: [
+            // Tractor Icon
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(32),
+              ),
+              child: const Icon(
+                Icons.agriculture,
                 color: Colors.white,
+                size: 32,
               ),
             ),
-          ),
-        ],
+            const SizedBox(width: 16),
+            
+            // Tractor Info
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    tractor.model,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    tractor.tractorId,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            // Status Indicators
+            Column(
+              children: [
+                // Status Section
+                Column(
+                  children: [
+                    const Text(
+                      'Status',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Container(
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Icon(
+                        Icons.check,
+                        color: AppColors.success,
+                        size: 16,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                
+                // Baseline Section
+                Column(
+                  children: [
+                    const Text(
+                      'Baseline',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Container(
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Icon(
+                        Icons.check,
+                        color: AppColors.success,
+                        size: 16,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -261,7 +311,7 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Tractor Information',
+              'Tractors Information',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
@@ -269,169 +319,76 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            _buildInfoRow(
-              Icons.access_time,
-              'Engine Hours',
-              tractor.formattedEngineHours,
-            ),
-            const Divider(height: 24),
-            _buildInfoRow(
-              Icons.calendar_today,
-              'Age',
-              tractor.tractorAge,
-            ),
             if (tractor.purchaseYear != null) ...[
-              const Divider(height: 24),
-              _buildInfoRow(
-                Icons.shopping_cart,
-                'Purchase Year',
-                tractor.purchaseYear.toString(),
+              Text(
+                'Purchased Year: ${tractor.purchaseYear}',
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: AppColors.textPrimary,
+                ),
               ),
+              const SizedBox(height: 8),
             ],
-            if (tractor.lastCheckDate != null) ...[
-              const Divider(height: 24),
-              _buildInfoRow(
-                Icons.check_circle,
-                'Last Check',
-                tractor.timeSinceLastCheck,
+            Text(
+              'Total Engine Hours: ${tractor.formattedEngineHours}',
+              style: const TextStyle(
+                fontSize: 14,
+                color: AppColors.textPrimary,
               ),
-            ],
-            if (tractor.notes != null && tractor.notes!.isNotEmpty) ...[
-              const Divider(height: 24),
-              _buildInfoRow(
-                Icons.notes,
-                'Notes',
-                tractor.notes!,
-              ),
-            ],
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildInfoRow(IconData icon, String label, String value) {
-    return Row(
-      children: [
-        Icon(icon, size: 20, color: AppColors.primary),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: AppColors.textTertiary,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                value,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
+
 
   Widget _buildQuickActions(Tractor tractor) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          const Text(
-            'Quick Actions',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: AppColors.textPrimary,
-            ),
+          _buildCompactActionButton(
+            icon: Icons.mic,
+            label: 'Test Audio',
+            color: AppColors.success,
+            onTap: () {
+              Navigator.pushNamed(
+                context,
+                '/audio-test',
+                arguments: tractor.tractorId,
+              );
+            },
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _buildActionButton(
-                  icon: Icons.mic,
-                  label: 'Test Audio',
-                  color: AppColors.primary,
-                  onTap: () {
-                    Navigator.pushNamed(
-                      context,
-                      '/audio-test',
-                      arguments: tractor.tractorId,
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildActionButton(
-                  icon: Icons.build,
-                  label: 'Maintenance',
-                  color: AppColors.warning,
-                  onTap: () {
-                    Navigator.pushNamed(
-                      context,
-                      '/maintenance',
-                      arguments: tractor.tractorId,
-                    );
-                  },
-                ),
-              ),
-            ],
+          _buildCompactActionButton(
+            icon: Icons.build,
+            label: 'Maintenance',
+            color: AppColors.warning,
+            onTap: () {
+              Navigator.pushNamed(
+                context,
+                '/maintenance',
+                arguments: tractor.tractorId,
+              );
+            },
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _buildActionButton(
-                  icon: Icons.graphic_eq,
-                  label: 'Setup Baseline',
-                  color: AppColors.info,
-                  onTap: () {
-                    // Debug: Print both IDs to see the difference
-                    print('🔍 Tractor Debug Info:');
-                    print('  - Database ID: ${tractor.id}');
-                    print('  - Tractor ID: ${tractor.tractorId}');
-                    print('  - Model: ${tractor.model}');
-                    
-                    // Pass the tractor data with proper tractor ID format
-                    Navigator.pushNamed(
-                      context,
-                      '/baseline-collection',
-                      arguments: {
-                        'tractorId': tractor.tractorId, // Use actual tractor ID (like T007)
-                        'tractorHours': tractor.engineHours,
-                        'model': tractor.model,
-                      },
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildActionButton(
-                  icon: Icons.show_chart,
-                  label: 'Statistics',
-                  color: AppColors.success,
-                  onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Statistics coming soon')),
-                    );
-                  },
-                ),
-              ),
-            ],
+          _buildCompactActionButton(
+            icon: Icons.graphic_eq,
+            label: 'Baseline',
+            color: AppColors.info,
+            onTap: () {
+              Navigator.pushNamed(
+                context,
+                '/baseline-collection',
+                arguments: {
+                  'tractorId': tractor.tractorId,
+                  'tractorHours': tractor.engineHours,
+                  'model': tractor.model,
+                },
+              );
+            },
           ),
         ],
       ),
@@ -439,165 +396,98 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
   }
 
   // Maintenance Summary (grid of stats)
-  Widget _buildMaintenanceSummary() {
-    if (_summary == null) return const SizedBox();
 
-    final totalAlerts = _summary!['total_alerts'] ?? 0;
-    final overdue = _summary!['overdue_alerts'] ?? 0;
-    final high = _summary!['high_priority_alerts'] ?? 0;
-    final estTimeHrs = (_summary!['total_estimated_time_hours'] ?? 0).toString();
-    final totalSpent = _summary!['total_spent_rwf'];
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Maintenance Summary',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: AppColors.textPrimary,
-            ),
-          ),
-          const SizedBox(height: 12),
-          GridView(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              childAspectRatio: 2.4,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-            ),
-            children: [
-              _buildStatTile(Icons.notifications, 'Total Alerts', '$totalAlerts', Colors.blue),
-              _buildStatTile(Icons.error, 'Overdue', '$overdue', Colors.red),
-              _buildStatTile(Icons.priority_high, 'High Priority', '$high', Colors.orange),
-              _buildStatTile(Icons.timer, 'Est. Time', '${estTimeHrs}h', Colors.teal),
-              if (totalSpent != null)
-                _buildStatTile(Icons.attach_money, 'Total Spent', '$totalSpent RWF', Colors.green),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatTile(IconData icon, String label, String value, Color color) {
+  Widget _buildMaintenanceAlertsCard() {
     return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16.0),
       child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(icon, color: color),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppColors.textTertiary,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    value,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                ],
+            const Text(
+              'Maintenance alerts',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: AppColors.textPrimary,
               ),
             ),
+            const SizedBox(height: 16),
+            if (_nextTask != null) ...[
+              _buildMaintenanceAlert(
+                _nextTask!['task_name'] ?? 'Upcoming maintenance',
+                _formatRemaining(
+                  _nextTask!['due_date'] != null
+                      ? DateTime.tryParse(_nextTask!['due_date'].toString())
+                      : null,
+                ),
+                (_nextTask!['priority']?.toString() ?? '').toLowerCase(),
+              ),
+            ] else ...[
+              Text(
+                'No maintenance alerts',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
           ],
         ),
       ),
     );
   }
 
-  // Next Maintenance card
-  Widget _buildNextMaintenanceCard() {
-    if (_nextTask == null) return const SizedBox();
-
-    final title = _nextTask!['task_name'] ?? 'Upcoming maintenance';
-    final dueStr = _nextTask!['due_date']?.toString();
-    final dueDate = dueStr != null ? DateTime.tryParse(dueStr) : null;
-    final remaining = _formatRemaining(dueDate);
-    final priority = (_nextTask!['priority']?.toString() ?? '').toLowerCase();
+  Widget _buildMaintenanceAlert(String title, String remaining, String priority) {
     final color = priority == 'critical'
         ? Colors.red
         : priority == 'high'
             ? Colors.orange
             : Colors.green;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: Card(
-        shape: RoundedRectangleBorder(
-          side: BorderSide(color: color.withOpacity(0.4)),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 14,
-                height: 14,
-                margin: const EdgeInsets.only(top: 4),
-                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      remaining,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (_nextTask!['estimated_time_minutes'] != null)
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 Text(
-                  '${_nextTask!['estimated_time_minutes']}m',
-                  style: TextStyle(
-                    color: color,
-                    fontWeight: FontWeight.bold,
+                  title,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
                   ),
                 ),
-            ],
+                const SizedBox(height: 2),
+                Text(
+                  remaining,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -612,7 +502,7 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
     return 'Due now';
   }
 
-  Widget _buildActionButton({
+  Widget _buildCompactActionButton({
     required IconData icon,
     required String label,
     required Color color,
@@ -622,28 +512,50 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.all(20),
+        width: 80,
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
+          color: Colors.white,
           borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 32, color: color),
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, size: 20, color: color),
+            ),
             const SizedBox(height: 8),
             Text(
               label,
               style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: color,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: AppColors.textPrimary,
               ),
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),
       ),
     );
   }
+
+
 
 
   void _showDeleteDialog() {
@@ -695,157 +607,6 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
       );
     }
   }
-
-  Widget _buildCurrentHoursCard(Tractor tractor) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Current Engine Hours',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey[600],
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '${tractor.engineHours} hrs',
-                  style: const TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.blue,
-                  ),
-                ),
-              ],
-            ),
-            IconButton(
-              icon: const Icon(Icons.edit, size: 32),
-              onPressed: () => _showLogHoursDialog(tractor),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildUsageStatsCard() {
-    if (_usageStats == null) return const SizedBox();
-
-    final last7Days = _usageStats!['usage_last_7_days'];
-    final last30Days = _usageStats!['usage_last_30_days'];
-    final totalHours = (last7Days['total_hours'] + last30Days['total_hours']).toDouble();
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Usage Statistics',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            
-            const SizedBox(height: 16),
-            
-            Row(
-              children: [
-                // Pie Chart
-                Expanded(
-                  flex: 2,
-                  child: SizedBox(
-                    height: 150,
-                    child: PieChart(
-                      PieChartData(
-                        sectionsSpace: 2,
-                        centerSpaceRadius: 40,
-                        sections: _getPieChartSections(last7Days, last30Days),
-                        pieTouchData: PieTouchData(
-                          touchCallback: (FlTouchEvent event, pieTouchResponse) {},
-                          enabled: true,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                
-                // Legend and Stats
-                Expanded(
-                  flex: 3,
-                  child: Padding(
-                    padding: const EdgeInsets.only(left: 16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Center total
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Column(
-                            children: [
-                              Text(
-                                '${totalHours.toStringAsFixed(1)}h',
-                                style: const TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const Text(
-                                'Total Hours',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        
-                        const SizedBox(height: 16),
-                        
-                        // Legend
-                        _buildLegendItem(
-                          'Last 7 Days',
-                          '${last7Days['total_hours']}h',
-                          Colors.green,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildLegendItem(
-                          'Previous 23 Days',
-                          '${(last30Days['total_hours'] - last7Days['total_hours']).toStringAsFixed(1)}h',
-                          Colors.orange,
-                        ),
-                        const SizedBox(height: 8),
-                        _buildLegendItem(
-                          'Idle Time',
-                          '${(168 - totalHours).toStringAsFixed(1)}h', // 7 days * 24 hours
-                          Colors.grey,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-
 
   Widget _buildUsageHistoryCard() {
     return Card(
@@ -904,7 +665,9 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                 return Column(
                   children: history.map<Widget>((record) {
                     final date = DateTime.parse(record['date']);
-                    final hoursUsed = record['hours_used'];
+                    // Safely parse numeric values that might come as strings
+                    final hoursUsed = _parseDouble(record['hours_used']) ?? 0.0;
+                    final endHours = _parseDouble(record['end_hours']) ?? 0.0;
                     
                     return ListTile(
                       leading: const Icon(Icons.calendar_today, color: Colors.blue),
@@ -914,7 +677,7 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                       ),
                       subtitle: Text('${hoursUsed.toStringAsFixed(1)} hours used'),
                       trailing: Text(
-                        '${record['end_hours']} hrs',
+                        '${endHours.toStringAsFixed(0)} hrs',
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           color: Colors.grey[700],
@@ -931,179 +694,4 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
     );
   }
 
-  void _showLogHoursDialog(Tractor tractor) {
-    final hoursController = TextEditingController(
-      text: tractor.engineHours.toString(),
-    );
-    final notesController = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Log Engine Hours'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: hoursController,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(
-                    labelText: 'Current Engine Hours',
-                    hintText: 'e.g., 52.5',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: notesController,
-                  maxLines: 3,
-                  decoration: const InputDecoration(
-                    labelText: 'Notes (optional)',
-                    hintText: 'What work was done today?',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                try {
-                  final endHours = double.parse(hoursController.text);
-                  
-                  await _apiService.logDailyUsage(
-                    _tractorId!,
-                    endHours,
-                    notesController.text.isEmpty ? null : notesController.text,
-                  );
-
-                  if (mounted) {
-                    Navigator.pop(context);
-                    
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('✅ Hours logged successfully!'),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
-
-                    // Refresh data
-                    _loadData();
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('❌ Error: ${e.toString()}'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                }
-              },
-              child: const Text('Log Hours'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  List<PieChartSectionData> _getPieChartSections(Map<String, dynamic> last7Days, Map<String, dynamic> last30Days) {
-    final last7DaysHours = (last7Days['total_hours'] as num).toDouble();
-    final previousDaysHours = ((last30Days['total_hours'] as num) - (last7Days['total_hours'] as num)).toDouble();
-    final idleHours = 168.0 - (last7DaysHours + previousDaysHours); // 7 days * 24 hours
-    
-    return [
-      PieChartSectionData(
-        color: Colors.green,
-        value: last7DaysHours,
-        title: '${last7DaysHours.toStringAsFixed(1)}h',
-        radius: 35,
-        titleStyle: const TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.bold,
-          color: Colors.white,
-        ),
-      ),
-      PieChartSectionData(
-        color: Colors.orange,
-        value: previousDaysHours,
-        title: '${previousDaysHours.toStringAsFixed(1)}h',
-        radius: 35,
-        titleStyle: const TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.bold,
-          color: Colors.white,
-        ),
-      ),
-      PieChartSectionData(
-        color: Colors.grey.shade300,
-        value: idleHours > 0 ? idleHours : 0,
-        title: idleHours > 0 ? '${idleHours.toStringAsFixed(0)}h' : '',
-        radius: 30,
-        titleStyle: const TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.bold,
-          color: Colors.grey,
-        ),
-      ),
-    ];
-  }
-
-  Widget _buildLegendItem(String title, String value, Color color) {
-    return Row(
-      children: [
-        Container(
-          width: 12,
-          height: 12,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            title,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
-        ),
-      ],
-    );
-  }
-
-
-
-
-  Color _getStatusColor(TractorStatus status) {
-    switch (status) {
-      case TractorStatus.good:
-        return AppColors.success;
-      case TractorStatus.warning:
-        return AppColors.warning;
-      case TractorStatus.critical:
-        return AppColors.error;
-      default:
-        return AppColors.textTertiary;
-    }
-  }
 }

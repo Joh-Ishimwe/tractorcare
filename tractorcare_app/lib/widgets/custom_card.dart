@@ -13,7 +13,7 @@ class CustomCard extends StatelessWidget {
   final BorderRadius? borderRadius;
 
   const CustomCard({
-    Key? key,
+    super.key,
     required this.child,
     this.padding,
     this.margin,
@@ -21,7 +21,7 @@ class CustomCard extends StatelessWidget {
     this.onTap,
     this.elevation,
     this.borderRadius,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -58,13 +58,13 @@ class InfoCard extends StatelessWidget {
   final VoidCallback? onTap;
 
   const InfoCard({
-    Key? key,
+    super.key,
     required this.title,
     required this.subtitle,
     required this.icon,
     required this.color,
     this.onTap,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -124,13 +124,13 @@ class StatCard extends StatelessWidget {
   final VoidCallback? onTap;
 
   const StatCard({
-    Key? key,
+    super.key,
     required this.icon,
     required this.value,
     required this.label,
     required this.color,
     this.onTap,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -182,13 +182,13 @@ class EmptyStateCard extends StatelessWidget {
   final VoidCallback? onAction;
 
   const EmptyStateCard({
-    Key? key,
+    super.key,
     required this.icon,
     required this.title,
     required this.message,
     this.actionText,
     this.onAction,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -229,6 +229,299 @@ class EmptyStateCard extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class GradientStatusCard extends StatelessWidget {
+  final String tractorModel;
+  final String tractorId;
+  final bool hasStatus;
+  final bool hasBaseline;
+  final IconData tractorIcon;
+  final VoidCallback? onTap;
+  final List<Color>? gradientColors;
+
+  const GradientStatusCard({
+    super.key,
+    required this.tractorModel,
+    required this.tractorId,
+    required this.hasStatus,
+    required this.hasBaseline,
+    this.tractorIcon = Icons.agriculture,
+    this.onTap,
+    this.gradientColors,
+  });
+
+  // ── Helper: build a single status column (Status / Baseline) ─────────────────
+  Widget _statusColumn({
+    required String label,
+    required bool active,
+  }) {
+    return Column(
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: Colors.white,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Container(
+          width: 28,
+          height: 28,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Icon(
+            active ? Icons.check : Icons.close,
+            size: 18,
+            color: active ? AppColors.success : Colors.grey[600],
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final gradient = gradientColors ?? AppColors.successGradient;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: gradient,
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: gradient.first.withOpacity(0.3),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            // ── Tractor icon ───────────────────────────────────────
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.25),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                tractorIcon,
+                color: Colors.white,
+                size: 32,
+              ),
+            ),
+            const SizedBox(width: 12),
+
+            // ── Model + ID ───────────────────────────────────────
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    tractorModel,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    tractorId,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Colors.white70,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+
+            // ── Status columns ───────────────────────────────────
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _statusColumn(label: 'Status', active: hasStatus),
+                const SizedBox(width: 16),
+                _statusColumn(label: 'Baseline', active: hasBaseline),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class ProfileCard extends StatelessWidget {
+  final String name;
+  final String email;
+  final String? phoneNumber;
+  final String? role;
+  final VoidCallback? onTap;
+  final String? avatarUrl;
+  final List<Color>? gradientColors;
+
+  const ProfileCard({
+    super.key,
+    required this.name,
+    required this.email,
+    this.phoneNumber,
+    this.role,
+    this.onTap,
+    this.avatarUrl,
+    this.gradientColors,
+  });
+
+  String get initials {
+    final names = name.split(' ');
+    if (names.length >= 2) {
+      return '${names[0][0]}${names[1][0]}'.toUpperCase();
+    }
+    return names[0][0].toUpperCase();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final gradient = gradientColors ?? AppColors.primaryGradient;
+    
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(20.0),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: gradient,
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: gradient[0].withOpacity(0.3),
+              blurRadius: 12,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            // Profile Avatar
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(32),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: avatarUrl != null
+                ? ClipRRect(
+                    borderRadius: BorderRadius.circular(32),
+                    child: Image.network(
+                      avatarUrl!,
+                      fit: BoxFit.cover,
+                    ),
+                  )
+                : Icon(
+                    Icons.person,
+                    color: gradient[0],
+                    size: 32,
+                  ),
+            ),
+            const SizedBox(width: 16),
+            
+            // Profile Info
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    email,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Colors.white,
+                    ),
+                  ),
+                  if (phoneNumber != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      phoneNumber!,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
+                  if (role != null) ...[
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        role!,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            
+            // Arrow indicator
+            if (onTap != null)
+              Icon(
+                Icons.chevron_right,
+                color: Colors.white.withOpacity(0.7),
+                size: 24,
+              ),
+          ],
+        ),
       ),
     );
   }

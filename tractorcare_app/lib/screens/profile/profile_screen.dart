@@ -5,9 +5,10 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/tractor_provider.dart';
 import '../../config/colors.dart';
+import '../../widgets/custom_card.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({Key? key}) : super(key: key);
+  const ProfileScreen({super.key});
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -84,60 +85,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
         child: Column(
           children: [
             // Profile Header
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(32.0),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: AppColors.primaryGradient,
-                ),
-              ),
-              child: Column(
-                children: [
-                  CircleAvatar(
-                    radius: 50,
-                    backgroundColor: Colors.white,
-                    child: Text(
-                      user?.initials ?? '?',
-                      style: const TextStyle(
-                        fontSize: 36,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.primary,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    user?.fullName ?? 'User',
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    user?.email ?? '',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      color: Colors.white,
-                    ),
-                  ),
-                  if (user?.phoneNumber != null) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      user!.phoneNumber!,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ],
-                ],
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: ProfileCard(
+                name: user?.fullName ?? 'User',
+                email: user?.email ?? '',
+                phoneNumber: user?.phoneNumber,
+                role: 'Farmer', // You can add role to user model or make it dynamic
+                onTap: () {
+                  // Navigate to edit profile or show profile details
+                },
               ),
             ),
 
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
 
             // Statistics Card
             Card(
