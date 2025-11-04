@@ -1,7 +1,7 @@
 // lib/screens/tractors/tractor_detail_screen.dart
 
-import 'dart:math' as math;
-import 'dart:math';
+// import 'dart:math' as math;
+// import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -11,7 +11,6 @@ import '../../models/tractor.dart';
 import '../../config/colors.dart';
 import '../../services/api_service.dart';
 import '../usage/usage_history_screen.dart';
-import '../audio/audio_results_screen.dart';
 
 class TractorDetailScreen extends StatefulWidget {
   const TractorDetailScreen({super.key});
@@ -24,6 +23,8 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
   String? _tractorId;
   bool _isLoading = true;
   Map<String, dynamic>? _usageStats;
+  Map<String, dynamic>? _summary; // maintenance summary
+  Map<String, dynamic>? _nextTask; // next maintenance task
   final ApiService _apiService = ApiService();
 
   @override
@@ -31,7 +32,12 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
     super.didChangeDependencies();
     if (_tractorId == null) {
       _tractorId = ModalRoute.of(context)!.settings.arguments as String;
-      _loadData();
+      // Defer loading until after first frame to avoid notifying listeners during build
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _loadData();
+        }
+      });
     }
   }
 
@@ -47,11 +53,35 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
     // Load usage statistics
     try {
       final stats = await _apiService.getUsageStats(_tractorId!);
-      setState(() {
-        _usageStats = stats;
-      });
+      if (stats.containsKey('usage_last_7_days') &&
+          stats.containsKey('usage_last_30_days')) {
+        setState(() {
+          _usageStats = stats;
+        });
+      }
     } catch (e) {
       print('Error loading usage stats: $e');
+    }
+
+    // Load maintenance summary (alerts, next task, etc.)
+    try {
+      final summary = await _apiService.getTractorSummary(_tractorId!);
+      Map<String, dynamic>? nextTask;
+      if (summary['alerts'] is List) {
+        final List alerts = List.from(summary['alerts']);
+        alerts.sort((a, b) {
+          final ad = DateTime.tryParse(a['due_date'].toString()) ?? DateTime.now();
+          final bd = DateTime.tryParse(b['due_date'].toString()) ?? DateTime.now();
+          return ad.compareTo(bd);
+        });
+        nextTask = alerts.isNotEmpty ? Map<String, dynamic>.from(alerts.first) : null;
+      }
+      setState(() {
+        _summary = Map<String, dynamic>.from(summary);
+        _nextTask = nextTask;
+      });
+    } catch (e) {
+      print('Error loading tractor summary: $e');
     }
     
     setState(() => _isLoading = false);
@@ -101,6 +131,21 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                         // Header Card
                         _buildHeaderCard(tractor),
 
+                        const SizedBox(height: 12),
+
+                        // Quick Actions (up top)
+                        _buildQuickActions(tractor),
+
+                        const SizedBox(height: 16),
+
+                        // Maintenance Summary (stats cards)
+                        _buildMaintenanceSummary(),
+
+                        const SizedBox(height: 16),
+
+                        // Next Maintenance
+                        _buildNextMaintenanceCard(),
+
                         const SizedBox(height: 16),
 
                         // Info Card
@@ -120,16 +165,6 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
 
                         // Usage History Preview
                         _buildUsageHistoryCard(),
-
-                        const SizedBox(height: 16),
-
-                        // Quick Actions
-                        _buildQuickActions(tractor),
-
-                        const SizedBox(height: 16),
-
-                        // Recent Audio Tests
-                        _buildRecentTests(),
 
                         const SizedBox(height: 16),
                       ],
@@ -316,7 +351,7 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                     Navigator.pushNamed(
                       context,
                       '/audio-test',
-                      arguments: tractor.id,
+                      arguments: tractor.tractorId,
                     );
                   },
                 ),
@@ -331,7 +366,7 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                     Navigator.pushNamed(
                       context,
                       '/maintenance',
-                      arguments: tractor.id,
+                      arguments: tractor.tractorId,
                     );
                   },
                 ),
@@ -350,7 +385,7 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                     Navigator.pushNamed(
                       context,
                       '/baseline-collection',
-                      arguments: tractor.id,
+                      arguments: tractor.tractorId,
                     );
                   },
                 ),
@@ -373,6 +408,180 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
         ],
       ),
     );
+  }
+
+  // Maintenance Summary (grid of stats)
+  Widget _buildMaintenanceSummary() {
+    if (_summary == null) return const SizedBox();
+
+    final totalAlerts = _summary!['total_alerts'] ?? 0;
+    final overdue = _summary!['overdue_alerts'] ?? 0;
+    final high = _summary!['high_priority_alerts'] ?? 0;
+    final estTimeHrs = (_summary!['total_estimated_time_hours'] ?? 0).toString();
+    final totalSpent = _summary!['total_spent_rwf'];
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Maintenance Summary',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 12),
+          GridView(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              childAspectRatio: 2.4,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+            ),
+            children: [
+              _buildStatTile(Icons.notifications, 'Total Alerts', '$totalAlerts', Colors.blue),
+              _buildStatTile(Icons.error, 'Overdue', '$overdue', Colors.red),
+              _buildStatTile(Icons.priority_high, 'High Priority', '$high', Colors.orange),
+              _buildStatTile(Icons.timer, 'Est. Time', '${estTimeHrs}h', Colors.teal),
+              if (totalSpent != null)
+                _buildStatTile(Icons.attach_money, 'Total Spent', '$totalSpent RWF', Colors.green),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatTile(IconData icon, String label, String value, Color color) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, color: color),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textTertiary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    value,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Next Maintenance card
+  Widget _buildNextMaintenanceCard() {
+    if (_nextTask == null) return const SizedBox();
+
+    final title = _nextTask!['task_name'] ?? 'Upcoming maintenance';
+    final dueStr = _nextTask!['due_date']?.toString();
+    final dueDate = dueStr != null ? DateTime.tryParse(dueStr) : null;
+    final remaining = _formatRemaining(dueDate);
+    final priority = (_nextTask!['priority']?.toString() ?? '').toLowerCase();
+    final color = priority == 'critical'
+        ? Colors.red
+        : priority == 'high'
+            ? Colors.orange
+            : Colors.green;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: Card(
+        shape: RoundedRectangleBorder(
+          side: BorderSide(color: color.withOpacity(0.4)),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 14,
+                height: 14,
+                margin: const EdgeInsets.only(top: 4),
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      remaining,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (_nextTask!['estimated_time_minutes'] != null)
+                Text(
+                  '${_nextTask!['estimated_time_minutes']}m',
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _formatRemaining(DateTime? due) {
+    if (due == null) return 'Due date unknown';
+    final now = DateTime.now();
+    final diff = due.difference(now);
+    if (diff.inDays >= 1) return '${diff.inDays}d remaining';
+    if (diff.inHours >= 1) return '${diff.inHours}h remaining';
+    if (diff.inMinutes >= 1) return '${diff.inMinutes}m remaining';
+    return 'Due now';
   }
 
   Widget _buildActionButton({
@@ -408,190 +617,6 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
     );
   }
 
-  Widget _buildRecentTests() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Recent Audio Tests',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              TextButton(
-                onPressed: () {
-                  // TODO: View all tests
-                },
-                child: const Text('View All'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Consumer<AudioProvider>(
-            builder: (context, provider, child) {
-              if (provider.isLoading) {
-                return const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(24.0),
-                    child: CircularProgressIndicator(),
-                  ),
-                );
-              }
-
-              if (provider.predictions.isEmpty) {
-                return Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24.0),
-                    child: Center(
-                      child: Column(
-                        children: [
-                          Icon(
-                            Icons.mic_off,
-                            size: 48,
-                            color: AppColors.textDisabled,
-                          ),
-                          const SizedBox(height: 12),
-                          const Text(
-                            'No audio tests yet',
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              }
-
-              return Column(
-                children: provider.predictions.take(5).map((prediction) {
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Header row
-                          Row(
-                            children: [
-                              Text(
-                                prediction.statusIcon,
-                                style: const TextStyle(fontSize: 24),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      prediction.statusText,
-                                      style: const TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    Text(
-                                      prediction.formattedDateTime,
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey[600],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Text(
-                                prediction.formattedConfidence,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                ),
-                              ),
-                            ],
-                          ),
-                          
-                          const SizedBox(height: 12),
-                          
-                          // Waveform visualization
-                          Container(
-                            height: 60,
-                            decoration: BoxDecoration(
-                              color: Colors.grey.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: _getSeverityColor(prediction.severity).withOpacity(0.3),
-                              ),
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.all(8),
-                              child: _buildAudioWaveform(prediction),
-                            ),
-                          ),
-                          
-                          const SizedBox(height: 8),
-                          
-                          // Analysis info
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                'Audio Analysis',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                              InkWell(
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) => AudioResultsScreen(prediction: prediction),
-                                    ),
-                                  );
-                                },
-                                child: Row(
-                                  children: [
-                                    Text(
-                                      'View Details',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.blue[600],
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                    Icon(
-                                      Icons.arrow_forward_ios,
-                                      size: 12,
-                                      color: Colors.blue[600],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }).toList(),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
 
   void _showDeleteDialog() {
     showDialog(
@@ -1038,106 +1063,8 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
     );
   }
 
-  Color _getSeverityColor(String severity) {
-    switch (severity.toLowerCase()) {
-      case 'critical':
-        return Colors.red;
-      case 'high':
-        return Colors.orange;
-      case 'medium':
-        return Colors.yellow;
-      case 'low':
-      case 'normal':
-        return Colors.green;
-      default:
-        return Colors.blue;
-    }
-  }
 
-  Widget _buildAudioWaveform(dynamic prediction) {
-    // Generate simulated waveform data based on prediction severity and confidence
-    final List<double> waveformData = _generateWaveformData(prediction);
-    final Color waveColor = _getSeverityColor(prediction.severity);
-    
-    return LineChart(
-      LineChartData(
-        gridData: const FlGridData(show: false),
-        titlesData: const FlTitlesData(show: false),
-        borderData: FlBorderData(show: false),
-        lineBarsData: [
-          LineChartBarData(
-            spots: waveformData.asMap().entries.map((entry) {
-              return FlSpot(entry.key.toDouble(), entry.value);
-            }).toList(),
-            isCurved: false,
-            color: waveColor,
-            barWidth: 1.5,
-            isStrokeCapRound: true,
-            dotData: const FlDotData(show: false),
-            belowBarData: BarAreaData(
-              show: true,
-              color: waveColor.withOpacity(0.2),
-            ),
-          ),
-        ],
-        minX: 0,
-        maxX: (waveformData.length - 1).toDouble(),
-        minY: -1,
-        maxY: 1,
-      ),
-    );
-  }
 
-  List<double> _generateWaveformData(dynamic prediction) {
-    // Create realistic waveform based on prediction properties
-    final Random random = Random(prediction.hashCode); // Consistent seed for same prediction
-    List<double> data = [];
-    
-    // Different waveform patterns based on severity
-    double baseAmplitude = 0.3;
-    double frequency = 2.0;
-    
-    switch (prediction.severity.toLowerCase()) {
-      case 'critical':
-        baseAmplitude = 0.8;
-        frequency = 4.0;
-        break;
-      case 'high':
-        baseAmplitude = 0.6;
-        frequency = 3.0;
-        break;
-      case 'medium':
-        baseAmplitude = 0.4;
-        frequency = 2.5;
-        break;
-      case 'low':
-      case 'normal':
-        baseAmplitude = 0.2;
-        frequency = 1.5;
-        break;
-    }
-    
-    // Generate 50 data points for the waveform
-    for (int i = 0; i < 50; i++) {
-      double x = i / 50.0;
-      
-      // Base sine wave with some noise
-      double sine = math.sin(x * frequency * 2 * math.pi) * baseAmplitude;
-      double noise = (random.nextDouble() - 0.5) * 0.1;
-      
-      // Add some harmonics for more realistic audio appearance
-      double harmonic1 = math.sin(x * frequency * 4 * math.pi) * baseAmplitude * 0.3;
-      double harmonic2 = math.sin(x * frequency * 6 * math.pi) * baseAmplitude * 0.1;
-      
-      double value = sine + harmonic1 + harmonic2 + noise;
-      
-      // Clamp values
-      value = math.max(-1.0, math.min(1.0, value));
-      data.add(value);
-    }
-    
-    return data;
-  }
 
   Color _getStatusColor(TractorStatus status) {
     switch (status) {

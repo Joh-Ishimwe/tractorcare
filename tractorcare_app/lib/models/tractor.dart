@@ -40,32 +40,36 @@ class Tractor {
 
   // From JSON
   factory Tractor.fromJson(Map<String, dynamic> json) {
+    final createdAtStr = json['created_at'];
+    final updatedAtStr = json['updated_at'];
+    final purchaseDateStr = json['purchase_date'];
+    final baselineStatus = json['baseline_status']?.toString().toLowerCase();
+
     return Tractor(
       id: json['id'] ?? json['_id'] ?? '',
       tractorId: json['tractor_id'] ?? '',
-      userId: json['user_id'] ?? '',
+      userId: json['owner_id'] ?? json['user_id'] ?? '',
       model: json['model'] ?? '',
       engineHours: (json['engine_hours'] ?? 0).toDouble(),
-      purchaseYear: json['purchase_year'],
+      purchaseYear: json['purchase_year'] ?? (purchaseDateStr != null ? DateTime.parse(purchaseDateStr).year : null),
       notes: json['notes'],
       isActive: json['is_active'] ?? true,
-      createdAt: json['created_at'] != null
-          ? DateTime.parse(json['created_at'])
-          : DateTime.now(),
-      updatedAt: json['updated_at'] != null
-          ? DateTime.parse(json['updated_at'])
-          : null,
-      status: _parseStatus(json['status']),
+      createdAt: createdAtStr != null ? DateTime.parse(createdAtStr) : DateTime.now(),
+      updatedAt: updatedAtStr != null ? DateTime.parse(updatedAtStr) : null,
+      status: _parseHealthStatus(json['health_status'] ?? json['status']),
       lastCheckDate: json['last_check_date'] != null
           ? DateTime.parse(json['last_check_date'])
           : null,
-      hasBaseline: json['has_baseline'] ?? false,
+      hasBaseline: baselineStatus == 'completed',
     );
   }
 
   // Parse status string to enum
-  static TractorStatus _parseStatus(String? status) {
-    switch (status?.toLowerCase()) {
+
+  // Map backend health_status to TractorStatus
+  static TractorStatus _parseHealthStatus(dynamic statusValue) {
+    final s = statusValue?.toString().toLowerCase();
+    switch (s) {
       case 'good':
         return TractorStatus.good;
       case 'warning':

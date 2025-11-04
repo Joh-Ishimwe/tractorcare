@@ -208,7 +208,7 @@ class _TractorListScreenState extends State<TractorListScreen> {
           Navigator.pushNamed(
             context,
             '/tractor-detail',
-            arguments: tractor.id,
+            arguments: tractor.tractorId,
           ).then((_) {
             _loadTractors();
           });

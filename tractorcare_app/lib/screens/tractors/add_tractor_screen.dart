@@ -54,13 +54,29 @@ class _AddTractorScreenState extends State<AddTractorScreen> {
 
     final tractorProvider = Provider.of<TractorProvider>(context, listen: false);
 
+    String normalizeModel(String raw) {
+      final cleaned = raw.trim().toUpperCase().replaceAll('-', '_').replaceAll(' ', '_');
+      if (cleaned.contains('240')) return 'MF_240';
+      if (cleaned.contains('375')) return 'MF_375';
+      return cleaned; // fallback (server will validate)
+    }
+
+    final model = normalizeModel(_modelController.text);
+
+    // Backend expects purchase_date (datetime). If user provided only year, use Jan 1 of that year; otherwise use today.
+    DateTime purchaseDate;
+    if (_purchaseYearController.text.isNotEmpty) {
+      final year = int.tryParse(_purchaseYearController.text)!;
+      purchaseDate = DateTime(year, 1, 1);
+    } else {
+      purchaseDate = DateTime.now();
+    }
+
     final data = {
       'tractor_id': _tractorIdController.text.trim(),
-      'model': _modelController.text.trim(),
+      'model': model,
       'engine_hours': double.parse(_engineHoursController.text),
-      if (_purchaseYearController.text.isNotEmpty)
-        'purchase_year': int.parse(_purchaseYearController.text),
-      if (_notesController.text.isNotEmpty) 'notes': _notesController.text.trim(),
+      'purchase_date': purchaseDate.toIso8601String(),
     };
 
     final success = await tractorProvider.createTractor(data);

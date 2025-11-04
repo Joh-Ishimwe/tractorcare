@@ -266,27 +266,74 @@ class ApiService {
   }
 
   Future<List<Maintenance>> getMaintenanceTasks(String tractorId, {bool completed = false}) async {
-    final maintenanceUrl = AppConfig.getApiUrl('${AppConfig.maintenanceEndpoint}/');
-    AppConfig.log('🔧 Fetching maintenance tasks for tractor: $tractorId');
-    
+    AppConfig.log('🔧 Fetching maintenance (${completed ? 'completed' : 'upcoming'}) for tractor: $tractorId');
     try {
-      final response = await http.get(
-        Uri.parse(maintenanceUrl).replace(queryParameters: {
-          'tractor_id': tractorId,
-          'completed': completed.toString(),
-        }),
-        headers: _getHeaders(),
-      ).timeout(Duration(seconds: AppConfig.apiTimeout));
-      
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final List<dynamic> maintenanceList = data['maintenance_tasks'] ?? data;
-        return maintenanceList.map((json) => Maintenance.fromJson(json)).toList();
+      if (completed) {
+        // Completed -> records
+        final url = AppConfig.getApiUrl('${AppConfig.maintenanceEndpoint}/$tractorId/records');
+        final response = await http.get(
+          Uri.parse(url),
+          headers: _getHeaders(),
+        ).timeout(Duration(seconds: AppConfig.apiTimeout));
+        if (response.statusCode == 200) {
+          final List<dynamic> list = json.decode(response.body);
+          // Map records to Maintenance model as completed items
+          return list.map<Maintenance>((r) {
+            final map = r as Map<String, dynamic>;
+            return Maintenance(
+              id: map['id'] ?? '',
+              tractorId: map['tractor_id'] ?? tractorId,
+              userId: '',
+              type: MaintenanceType.service,
+              customType: map['task_name'] ?? 'Service',
+              dueDate: DateTime.parse(map['completion_date']),
+              notes: map['description'],
+              status: MaintenanceStatus.completed,
+              completedAt: DateTime.parse(map['completion_date']),
+              actualCost: (map['actual_cost_rwf'] is num) ? (map['actual_cost_rwf'] as num).toDouble() : null,
+              createdAt: DateTime.now(),
+            );
+          }).toList();
+        }
+        if (response.statusCode == 404) return [];
+        throw Exception('Failed to get maintenance tasks - Status: ${response.statusCode}');
+      } else {
+        // Upcoming -> alerts
+        final url = AppConfig.getApiUrl('${AppConfig.maintenanceEndpoint}/$tractorId/alerts');
+        final response = await http.get(
+          Uri.parse(url),
+          headers: _getHeaders(),
+        ).timeout(Duration(seconds: AppConfig.apiTimeout));
+        if (response.statusCode == 200) {
+          final List<dynamic> list = json.decode(response.body);
+          return list.map<Maintenance>((a) {
+            final map = a as Map<String, dynamic>;
+            final statusStr = (map['status'] ?? 'upcoming').toString().toLowerCase();
+            final status = statusStr == 'overdue'
+                ? MaintenanceStatus.overdue
+                : statusStr == 'due'
+                    ? MaintenanceStatus.due
+                    : MaintenanceStatus.upcoming;
+            return Maintenance(
+              id: map['id'] ?? '',
+              tractorId: map['tractor_id'] ?? tractorId,
+              userId: '',
+              type: MaintenanceType.service,
+              customType: map['task_name'] ?? 'Service',
+              dueDate: DateTime.parse(map['due_date']),
+              notes: map['description'],
+              status: status,
+              createdAt: DateTime.parse(map['created_at'] ?? DateTime.now().toIso8601String()),
+            );
+          }).toList();
+        }
+        if (response.statusCode == 404) return [];
+        throw Exception('Failed to get maintenance tasks - Status: ${response.statusCode}');
       }
-      throw Exception('Failed to get maintenance tasks - Status: ${response.statusCode}');
     } catch (e) {
       AppConfig.logError('❌ Get maintenance tasks error', e);
-      rethrow; // No mock fallback - only live data
+      // For now, return empty so UI can show empty state gracefully
+      return [];
     }
   }
 
@@ -700,6 +747,10 @@ class ApiService {
       
       if (response.statusCode == 200) {
         return json.decode(response.body);
+      }
+      // If endpoint is not available yet or tractor has no stats, return empty map instead of throwing
+      if (response.statusCode == 404 || response.statusCode == 204) {
+        return {};
       }
       throw Exception('Failed to get usage stats');
     } catch (e) {

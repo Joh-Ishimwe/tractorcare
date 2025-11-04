@@ -85,14 +85,14 @@ class TractorProvider with ChangeNotifier {
     try {
       final updatedTractor = await _api.updateTractor(tractorId, tractorData);
       
-      // Update in list
-      final index = _tractors.indexWhere((t) => t.id == tractorId);
+      // Update in list (match by tractorId, which API uses)
+      final index = _tractors.indexWhere((t) => t.tractorId == tractorId);
       if (index != -1) {
         _tractors[index] = updatedTractor;
       }
       
       // Update selected tractor if it's the same
-      if (_selectedTractor?.id == tractorId) {
+      if (_selectedTractor?.tractorId == tractorId) {
         _selectedTractor = updatedTractor;
       }
       
@@ -115,10 +115,10 @@ class TractorProvider with ChangeNotifier {
       await _api.deleteTractor(tractorId);
       
       // Remove from list
-      _tractors.removeWhere((t) => t.id == tractorId);
+      _tractors.removeWhere((t) => t.tractorId == tractorId);
       
       // Clear selected tractor if it's the same
-      if (_selectedTractor?.id == tractorId) {
+      if (_selectedTractor?.tractorId == tractorId) {
         _selectedTractor = null;
       }
       
