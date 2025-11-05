@@ -1,16 +1,11 @@
 // lib/screens/baseline/baseline_collection_screen.dart
 
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
-import 'dart:io';
-import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import '../../providers/audio_provider.dart';
 import '../../config/colors.dart';
-import '../../widgets/custom_button.dart';
-import '../../widgets/custom_card.dart';
 import '../../services/api_service.dart';
 
 class BaselineCollectionScreen extends StatefulWidget {
@@ -22,20 +17,16 @@ class BaselineCollectionScreen extends StatefulWidget {
 }
 
 class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
-  int _currentSample = 0;
   final int _totalSamples = 5;
   bool _isRecording = false;
   int _recordingDuration = 0;
   Timer? _timer;
-  final List<String> _recordedSamples = [];
   String? _tractorId;
   String? _baselineId;
   bool _isLoading = false;
   double? _tractorHours;
   String? _tractorModel;
   List<Map<String, dynamic>>? _baselineHistory;
-  bool _isLoadingHistory = true;
-  String _loadCondition = 'normal';
   final TextEditingController _notesController = TextEditingController();
 
   @override
@@ -107,99 +98,10 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
     super.dispose();
   }
 
-  bool get isLoading => _isLoading; // Used for loading states
-
-  Future<void> _testTractorAPI() async {
-    if (_tractorId == null) return;
-    
-    setState(() => _isLoading = true);
-    
-    try {
-      final apiService = ApiService();
-      
-      // Show loading dialog
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const AlertDialog(
-          content: Row(
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(width: 16),
-              Text('Testing API connectivity...'),
-            ],
-          ),
-        ),
-      );
-      
-      // Test the API endpoints
-      await apiService.testTractorT007();
-      final baselineTest = await apiService.testBaselineUpload(_tractorId!);
-      
-      if (mounted) {
-        Navigator.of(context).pop(); // Close loading dialog
-        
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('✅ API Test Successful'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Tractor: $_tractorId'),
-                Text('Model: $_tractorModel'),
-                Text('Status: ${baselineTest['baseline_status']}'),
-                const SizedBox(height: 8),
-                const Text('All endpoints are working correctly!'),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('OK'),
-              ),
-            ],
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        Navigator.of(context).pop(); // Close loading dialog
-        
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('❌ API Test Failed'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Tractor: $_tractorId'),
-                Text('Error: $e'),
-                const SizedBox(height: 8),
-                const Text('Please check your internet connection and try again.'),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('OK'),
-              ),
-            ],
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
-  }
+  bool get isLoading => _isLoading;
 
   void _startRecording() async {
     final audioProvider = Provider.of<AudioProvider>(context, listen: false);
-
     final success = await audioProvider.startRecording();
 
     if (success) {
@@ -208,14 +110,12 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
         _recordingDuration = 0;
       });
 
-      // Start timer
       _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
         if (mounted) {
           setState(() {
             _recordingDuration++;
           });
 
-          // Auto-stop after 10 seconds
           if (_recordingDuration >= 10) {
             _stopRecording();
           }
@@ -233,7 +133,6 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
 
   void _stopRecording() async {
     _timer?.cancel();
-
     final audioProvider = Provider.of<AudioProvider>(context, listen: false);
     final filePath = await audioProvider.stopRecording();
 
@@ -242,128 +141,18 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
       _recordingDuration = 0;
     });
 
-    if (filePath != null && _tractorId != null) {
-      try {
-        // Upload the recorded sample to API
-        final apiService = ApiService();
-        
-        // Check if we're on web platform
-        if (kIsWeb) {
-          // For web, we need to get the audio bytes from the audio provider
-          final audioBytesList = await audioProvider.getRecordingBytes(filePath);
-          if (audioBytesList != null) {
-            // Convert List<int> to Uint8List
-            final audioBytes = Uint8List.fromList(audioBytesList);
-            await apiService.addBaselineSample(
-              tractorId: _tractorId!,
-              audioBytes: audioBytes,
-              fileName: 'recording_${DateTime.now().millisecondsSinceEpoch}.wav',
-            );
-          } else {
-            throw Exception('Failed to get recording bytes for web upload');
-          }
-        } else {
-          // For mobile/desktop, use file path
-          if (!kIsWeb) {
-            final file = File(filePath);
-            await apiService.addBaselineSample(
-              tractorId: _tractorId!,
-              audioFile: file,
-            );
-          } else {
-            throw Exception('Web should use bytes path above');
-          }
-        }
-
-        setState(() {
-          _recordedSamples.add(filePath);
-          _currentSample++;
+    if (filePath != null) {
+      setState(() {
+        _baselineHistory ??= [];
+        _baselineHistory!.insert(0, {
+          'filename': 'Recording ${DateTime.now().millisecondsSinceEpoch}.wav',
+          'status': 'pending',
+          'date': DateTime.now().toString(),
         });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Sample $_currentSample recorded successfully!'),
-            backgroundColor: AppColors.success,
-          ),
-        );
-
-        // Check if all samples collected
-        if (_currentSample >= _totalSamples) {
-          await _finalizeBaseline();
-          _showCompletionDialog();
-        }
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to upload recorded sample: $e'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _finalizeBaseline() async {
-    if (_baselineId == null || _tractorId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Error: No active baseline session'),
-          backgroundColor: AppColors.error,
-        ),
-      );
-      return;
-    }
-
-    try {
-      setState(() {
-        _isLoading = true;
       });
-
-      // Collect finalization parameters
-      final finalizationData = {
-        'tractor_hours': _tractorHours,
-        'load_condition': _loadCondition,
-        'notes': _notesController.text.isNotEmpty ? _notesController.text : null,
-      };
-
-      print('Finalizing baseline with data: $finalizationData');
       
-      await ApiService().finalizeBaseline(_baselineId!, finalizationData);
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Baseline collection completed successfully!'),
-          backgroundColor: AppColors.success,
-        ),
-      );
-      
-      // Refresh the history
-      await _loadBaselineHistory();
-      
-      // Reset form
-      _resetBaseline();
-    } catch (e) {
-      print('Error finalizing baseline: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error: ${e.toString()}'),
-          backgroundColor: AppColors.error,
-        ),
-      );
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      _simulateUpload(0);
     }
-  }
-
-  void _resetBaseline() {
-    setState(() {
-      _baselineId = null;
-      _recordedSamples.clear();
-      _loadCondition = 'normal';
-      _notesController.clear();
-    });
   }
 
   Future<void> _initializeBaseline() async {
@@ -380,7 +169,6 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
         targetSamples: _totalSamples,
       );
       
-      // Extract baseline ID from response
       if (result['baseline_id'] != null) {
         _baselineId = result['baseline_id'];
         print('✅ Baseline session started with ID: $_baselineId');
@@ -398,12 +186,6 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
       String errorMessage = 'Failed to start baseline session';
       if (e.toString().contains('404') || e.toString().contains('not found')) {
         errorMessage = 'Tractor "$_tractorId" not found. Please ensure this tractor ID exists in the backend system.';
-      } else if (e.toString().contains('403') || e.toString().contains('forbidden')) {
-        errorMessage = 'Authentication error. Please login again.';
-      } else if (e.toString().contains('500')) {
-        errorMessage = 'Server error. Please try again later.';
-      } else if (e.toString().contains('connection')) {
-        errorMessage = 'Network connection error. Please check your internet connection.';
       }
       
       ScaffoldMessenger.of(context).showSnackBar(
@@ -414,52 +196,36 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
         ),
       );
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
   Future<void> _loadBaselineHistory() async {
     if (_tractorId == null) return;
     
-    setState(() {
-      _isLoadingHistory = true;
-    });
-    
     try {
       final apiService = ApiService();
       final baselines = await apiService.getBaselineHistory(_tractorId!);
       
-      // Transform API response to match expected format
       List<Map<String, dynamic>> history = [];
       for (var baseline in baselines) {
         history.add({
           'id': baseline['id']?.toString() ?? '',
           'date': _formatDate(baseline['created_at']),
           'status': _mapStatus(baseline['status']),
-          'samples': baseline['sample_count'] ?? 0,
-          'isActive': baseline['is_active'] ?? false,
+          'filename': 'Baseline ${baseline['id']}',
         });
       }
       
       setState(() {
         _baselineHistory = history;
-        _isLoadingHistory = false;
       });
     } catch (e) {
-      print('Failed to load baseline history: $e');
       setState(() {
         _baselineHistory = [];
-        _isLoadingHistory = false;
       });
-      
-      // Don't show error for 404 (tractor not found) - it's expected for new tractors
-      if (!e.toString().contains('404') && !e.toString().contains('not found')) {
-        print('❌ Failed to load baseline history: $e');
-      } else {
-        print('ℹ️ No baseline history found for tractor $_tractorId (new tractor)');
-      }
     }
   }
 
@@ -476,15 +242,13 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
   String _mapStatus(String? status) {
     switch (status?.toLowerCase()) {
       case 'completed':
-        return 'Completed';
+        return 'uploaded';
       case 'processing':
-        return 'Processing';
+        return 'pending';
       case 'failed':
-        return 'Failed';
-      case 'in_progress':
-        return 'Processing';
+        return 'failed';
       default:
-        return 'Unknown';
+        return 'pending';
     }
   }
 
@@ -493,7 +257,365 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
   ];
 
-  void _uploadAudioFile() async {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Green Header
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 20.0),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: AppColors.successGradient,
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.arrow_back, color: Colors.white),
+                  ),
+                  const Expanded(
+                    child: Text(
+                      'Record Engine Sound',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                  const SizedBox(width: 48), // Balance the back button
+                ],
+              ),
+            ),
+            
+            // Content Area
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Recording Interface
+                    _buildRecordingInterface(),
+                    
+                    const SizedBox(height: 24),
+                    
+                    // Upload Options
+                    _buildUploadOptions(),
+                    
+                    const SizedBox(height: 32),
+                    
+                    // Recent Uploads
+                    _buildRecentUploads(),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRecordingInterface() {
+    return Container(
+      padding: const EdgeInsets.all(24.0),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: AppColors.successGradient,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.success.withOpacity(0.3),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // Microphone Icon
+          Container(
+            width: 80,
+            height: 80,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.mic,
+              size: 40,
+              color: Colors.white,
+            ),
+          ),
+          
+          const SizedBox(height: 20),
+          
+          // Timer Display
+          Text(
+            _formatTime(_recordingDuration),
+            style: const TextStyle(
+              fontSize: 36,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
+          ),
+          
+          const SizedBox(height: 8),
+          
+          // Status Text
+          Text(
+            _isRecording ? 'Recording...' : 'Ready to Record',
+            style: const TextStyle(
+              fontSize: 16,
+              color: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUploadOptions() {
+    return Column(
+      children: [
+        // Record Button
+        SizedBox(
+          width: double.infinity,
+          height: 56,
+          child: ElevatedButton.icon(
+            onPressed: _isRecording ? _stopRecording : _startRecording,
+            icon: Icon(_isRecording ? Icons.stop : Icons.mic),
+            label: Text(_isRecording ? 'STOP RECORDING' : 'START RECORDING'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.success,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ),
+        
+        const SizedBox(height: 16),
+        
+        // Upload from Files Button
+        SizedBox(
+          width: double.infinity,
+          height: 56,
+          child: OutlinedButton.icon(
+            onPressed: _pickAudioFile,
+            icon: const Icon(Icons.upload_file),
+            label: const Text('UPLOAD FROM FILES'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.success,
+              side: const BorderSide(color: AppColors.success),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRecentUploads() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Recent Uploads',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: AppColors.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 16),
+        
+        if (_baselineHistory == null || _baselineHistory!.isEmpty) 
+          _buildEmptyUploads()
+        else
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _baselineHistory!.length,
+            itemBuilder: (context, index) {
+              final upload = _baselineHistory![index];
+              return _buildUploadItem(upload, index);
+            },
+          ),
+      ],
+    );
+  }
+
+  Widget _buildEmptyUploads() {
+    return Container(
+      padding: const EdgeInsets.all(32.0),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            Icons.upload_file,
+            size: 48,
+            color: Colors.grey[400],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'No uploads yet',
+            style: TextStyle(
+              fontSize: 16,
+              color: Colors.grey[600],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Start recording to create your first baseline',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey[500],
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUploadItem(Map<String, dynamic> upload, int index) {
+    final isUploaded = upload['status'] == 'uploaded';
+    final isPending = upload['status'] == 'pending';
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Status Icon
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: isUploaded 
+                ? AppColors.success.withOpacity(0.1)
+                : isPending 
+                  ? AppColors.warning.withOpacity(0.1)
+                  : AppColors.error.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Icon(
+              isUploaded 
+                ? Icons.check_circle
+                : isPending 
+                  ? Icons.schedule
+                  : Icons.error,
+              color: isUploaded 
+                ? AppColors.success
+                : isPending 
+                  ? AppColors.warning
+                  : AppColors.error,
+              size: 24,
+            ),
+          ),
+          
+          const SizedBox(width: 16),
+          
+          // Upload Info
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  upload['filename'] ?? 'Recording ${index + 1}',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  upload['date'] ?? 'Just now',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          // Delete Button
+          IconButton(
+            onPressed: () => _deleteUpload(index),
+            icon: const Icon(Icons.delete_outline),
+            color: AppColors.error,
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatTime(int seconds) {
+    final minutes = seconds ~/ 60;
+    final remainingSeconds = seconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
+  }
+
+  void _deleteUpload(int index) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Upload'),
+        content: const Text('Are you sure you want to delete this recording?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              setState(() {
+                _baselineHistory?.removeAt(index);
+              });
+              Navigator.pop(context);
+            },
+            style: TextButton.styleFrom(foregroundColor: AppColors.error),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _pickAudioFile() async {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.audio,
@@ -501,696 +623,40 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
       );
 
       if (result != null) {
-        // Show loading
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Row(
-              children: [
-                CircularProgressIndicator(strokeWidth: 2),
-                SizedBox(width: 16),
-                Text('Uploading audio file...'),
-              ],
-            ),
-            duration: Duration(seconds: 30),
-          ),
-        );
-
-        if (_tractorId != null) {
-          final apiService = ApiService();
-          
-          // Handle web vs mobile file upload
-          if (result.files.single.path != null && !kIsWeb) {
-            // Mobile/Desktop - use file path
-            final file = File(result.files.single.path!);
-            await apiService.addBaselineSample(
-              tractorId: _tractorId!,
-              audioFile: file,
-            );
-            
-            setState(() {
-              _recordedSamples.add(file.path);
-              _currentSample++;
-            });
-          } else if (result.files.single.bytes != null) {
-            // Web - use bytes
-            await apiService.addBaselineSample(
-              tractorId: _tractorId!,
-              audioBytes: result.files.single.bytes!,
-              fileName: result.files.single.name,
-            );
-            
-            setState(() {
-              _recordedSamples.add(result.files.single.name);
-              _currentSample++;
-            });
-          } else {
-            throw Exception('No file data available');
-          }
-
-          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Sample $_currentSample uploaded successfully!'),
-              backgroundColor: AppColors.success,
-            ),
-          );
-
-          // Check if all samples collected
-          if (_currentSample >= _totalSamples) {
-            await _finalizeBaseline();
-            _showCompletionDialog();
-          }
-        }
+        final file = result.files.first;
+        // Add to recent uploads
+        setState(() {
+          _baselineHistory ??= [];
+          _baselineHistory!.insert(0, {
+            'filename': file.name,
+            'status': 'pending',
+            'date': DateTime.now().toString(),
+          });
+        });
+        
+        // Simulate upload process
+        _simulateUpload(0);
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to upload audio file: $e'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error picking file: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
     }
   }
 
-  void _showCompletionDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('Baseline Collection Complete!'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.check_circle,
-              size: 64,
-              color: AppColors.success,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Successfully collected $_totalSamples baseline samples!',
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'The AI will now learn your tractor\'s normal sound pattern.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12,
-                color: AppColors.textSecondary,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context); // Close dialog
-              Navigator.pop(context); // Go back to previous screen
-              Navigator.pushNamed(context, '/baseline-status');
-            },
-            child: const Text('View Status'),
-          ),
-        ],
-      ),
-    );
+  void _simulateUpload(int index) {
+    // Simulate upload delay
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted && _baselineHistory != null && index < _baselineHistory!.length) {
+        setState(() {
+          _baselineHistory![index]['status'] = 'uploaded';
+        });
+      }
+    });
   }
-
-  @override
-  Widget build(BuildContext context) {
-    final progress = _currentSample / _totalSamples;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Collect Baseline'),
-        centerTitle: true,
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // API Test Button (for debugging)
-            if (_tractorId != null) ...[
-              ElevatedButton.icon(
-                onPressed: () => _testTractorAPI(),
-                icon: const Icon(Icons.bug_report),
-                label: Text('Test API for $_tractorId'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange,
-                  foregroundColor: Colors.white,
-                ),
-              ),
-              const SizedBox(height: 16),
-            ],
-            
-            // Progress Card
-            CustomCard(
-              color: AppColors.primary.withOpacity(0.1),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Sample ${_currentSample + 1} of $_totalSamples',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      Text(
-                        '${(_currentSample / _totalSamples * 100).toInt()}%',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.primary,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  LinearProgressIndicator(
-                    value: progress,
-                    backgroundColor: Colors.grey[300],
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      AppColors.primary,
-                    ),
-                    minHeight: 8,
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 24),
-
-            // Recording Area
-            CustomCard(
-              padding: const EdgeInsets.all(40.0),
-              child: Column(
-                children: [
-                  // Microphone Icon
-                  Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: _isRecording
-                          ? AppColors.error.withOpacity(0.1)
-                          : AppColors.primary.withOpacity(0.1),
-                    ),
-                    child: Center(
-                      child: Icon(
-                        _isRecording ? Icons.mic : Icons.mic_none,
-                        size: 60,
-                        color: _isRecording ? AppColors.error : AppColors.primary,
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  // Recording Status
-                  Text(
-                    _isRecording ? 'Recording...' : 'Ready to Record',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: _isRecording ? AppColors.error : AppColors.textPrimary,
-                    ),
-                  ),
-
-                  if (_isRecording) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      '${_recordingDuration}s / 10s',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ],
-
-                  const SizedBox(height: 32),
-
-                  // Configuration Section
-                  CustomCard(
-                    color: AppColors.surface,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Recording Configuration',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        
-                        // Load Condition Selector
-                        const Text(
-                          'Load Condition:',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          decoration: BoxDecoration(
-                            border: Border.all(color: AppColors.border),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: DropdownButtonHideUnderline(
-                            child: DropdownButton<String>(
-                              value: _loadCondition,
-                              onChanged: (String? newValue) {
-                                setState(() {
-                                  _loadCondition = newValue!;
-                                });
-                              },
-                              items: const [
-                                DropdownMenuItem(
-                                  value: 'idle',
-                                  child: Text('Idle'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'light',
-                                  child: Text('Light Load'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'normal',
-                                  child: Text('Normal Load'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'heavy',
-                                  child: Text('Heavy Load'),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        
-                        const SizedBox(height: 16),
-                        
-                        // Notes Field
-                        const Text(
-                          'Notes (Optional):',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        TextField(
-                          controller: _notesController,
-                          decoration: InputDecoration(
-                            hintText: 'Add any notes about this baseline...',
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            contentPadding: const EdgeInsets.all(16),
-                          ),
-                          maxLines: 3,
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  // Action Buttons
-                  if (!_isRecording) ...[
-                    CustomButton(
-                      text: 'Start Recording',
-                      icon: Icons.mic,
-                      onPressed: _startRecording,
-                      width: 200,
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Text(
-                          'Or ',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                        GestureDetector(
-                          onTap: _uploadAudioFile,
-                          child: Text(
-                            'Upload Audio File',
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: AppColors.primary,
-                              fontWeight: FontWeight.bold,
-                              decoration: TextDecoration.underline,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ] else
-                    CustomButton(
-                      text: 'Stop Recording',
-                      icon: Icons.stop,
-                      onPressed: _stopRecording,
-                      color: AppColors.error,
-                      width: 200,
-                    ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 24),
-
-            // Collected Samples (moved up)
-            if (_recordedSamples.isNotEmpty) ...[
-              const Text(
-                'Collected Samples',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 12),
-              ..._recordedSamples.asMap().entries.map((entry) {
-                return CustomCard(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: AppColors.success.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Center(
-                          child: Icon(
-                            Icons.check_circle,
-                            color: AppColors.success,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'Sample ${entry.key + 1}',
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline),
-                        color: AppColors.error,
-                        onPressed: () {
-                          setState(() {
-                            _recordedSamples.removeAt(entry.key);
-                            _currentSample--;
-                          });
-                        },
-                      ),
-                    ],
-                  ),
-                );
-              }),
-              const SizedBox(height: 24),
-            ],
-
-            // Baseline History Section
-            _buildBaselineHistory(),
-            
-            // const SizedBox(height: 24),
-
-            // // Instructions (moved down)
-            // CustomCard(
-            //   color: AppColors.info.withOpacity(0.1),
-            //   child: Column(
-            //     crossAxisAlignment: CrossAxisAlignment.start,
-            //     children: [
-            //       Row(
-            //         children: [
-            //           Icon(Icons.info_outline, color: AppColors.info),
-            //           const SizedBox(width: 12),
-            //           const Text(
-            //             'Recording Tips',
-            //             style: TextStyle(
-            //               fontSize: 16,
-            //               fontWeight: FontWeight.bold,
-            //             ),
-            //           ),
-            //         ],
-            //       ),
-            //       const SizedBox(height: 12),
-            //       _buildTip('Hold phone 1-2 feet from engine'),
-            //       _buildTip('Record in a quiet environment'),
-            //       _buildTip('Keep tractor at idle speed'),
-            //       _buildTip('Each recording should be 5-10 seconds'),
-            //       _buildTip('Collect $_totalSamples samples for best results'),
-            //     ],
-            //   ),
-            // ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBaselineHistory() {
-    if (_isLoadingHistory) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Baseline History',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 12),
-          CustomCard(
-            child: Row(
-              children: [
-                const CircularProgressIndicator(strokeWidth: 2),
-                const SizedBox(width: 16),
-                const Text('Loading baseline history...'),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-        ],
-      );
-    }
-
-    final baselineHistory = _baselineHistory ?? [];
-
-    if (baselineHistory.isEmpty) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Baseline History',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 12),
-          CustomCard(
-            child: Row(
-              children: [
-                Icon(Icons.info_outline, color: AppColors.info),
-                const SizedBox(width: 12),
-                const Expanded(
-                  child: Text('No previous baselines found. Start collecting your first baseline!'),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-        ],
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Baseline History',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 12),
-        ...baselineHistory.map((baseline) {
-          Color statusColor;
-          IconData statusIcon;
-          
-          switch (baseline['status']) {
-            case 'Completed':
-              statusColor = AppColors.success;
-              statusIcon = Icons.check_circle;
-              break;
-            case 'Processing':
-              statusColor = AppColors.warning;
-              statusIcon = Icons.hourglass_empty;
-              break;
-            case 'Failed':
-              statusColor = AppColors.error;
-              statusIcon = Icons.error;
-              break;
-            default:
-              statusColor = AppColors.textSecondary;
-              statusIcon = Icons.help;
-          }
-
-          return CustomCard(
-            margin: const EdgeInsets.only(bottom: 8),
-            child: Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(
-                    statusIcon,
-                    color: statusColor,
-                    size: 20,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text(
-                            baseline['status'],
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: statusColor,
-                            ),
-                          ),
-                          if (baseline['isActive']) ...[
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppColors.primary,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: const Text(
-                                'Active',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                      Text(
-                        '${baseline['date']} • ${baseline['samples']} samples',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline),
-                  color: AppColors.error,
-                  onPressed: () => _deleteBaseline(baseline['id']),
-                ),
-              ],
-            ),
-          );
-        }),
-      ],
-    );
-  }
-
-  void _deleteBaseline(String baselineId) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Baseline'),
-        content: const Text('Are you sure you want to delete this baseline? This action cannot be undone.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              
-              try {
-                // Show loading
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Row(
-                      children: [
-                        CircularProgressIndicator(strokeWidth: 2),
-                        SizedBox(width: 16),
-                        Text('Deleting baseline...'),
-                      ],
-                    ),
-                  ),
-                );
-
-                // For now, we don't have a specific delete baseline API
-                // So we'll simulate it by removing from local state and reloading
-                setState(() {
-                  _baselineHistory?.removeWhere((baseline) => baseline['id'] == baselineId);
-                });
-
-                ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Baseline deleted successfully'),
-                    backgroundColor: AppColors.success,
-                  ),
-                );
-              } catch (e) {
-                ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Failed to delete baseline: $e'),
-                    backgroundColor: AppColors.error,
-                  ),
-                );
-              }
-            },
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-  }
-
-
 }

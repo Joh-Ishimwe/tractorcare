@@ -65,7 +65,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
-    final tractorProvider = Provider.of<TractorProvider>(context);
     final user = authProvider.currentUser;
 
     return Scaffold(
@@ -95,73 +94,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 onTap: () {
                   // Navigate to edit profile or show profile details
                 },
-              ),
-            ),
-
-            const SizedBox(height: 8),
-
-            // Statistics Card
-            Card(
-              margin: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: Padding(
-                padding: const EdgeInsets.all(20.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Quick Stats',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildStatBox(
-                            Icons.agriculture,
-                            tractorProvider.tractors.length.toString(),
-                            'Tractors',
-                            AppColors.primary,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: _buildStatBox(
-                            Icons.mic,
-                            '--',
-                            'Audio Tests',
-                            AppColors.info,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildStatBox(
-                            Icons.build,
-                            '--',
-                            'Maintenance',
-                            AppColors.warning,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: _buildStatBox(
-                            Icons.calendar_today,
-                            _getMemberSince(user?.createdAt),
-                            'Member Since',
-                            AppColors.success,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
               ),
             ),
 
@@ -261,39 +193,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildStatBox(IconData icon, String value, String label, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(16.0),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, size: 32, color: color),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 12,
-              color: AppColors.textSecondary,
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildMenuItem(
     IconData icon,
     String title,
@@ -330,11 +229,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
       onTap: onTap,
     );
-  }
-
-  String _getMemberSince(DateTime? date) {
-    if (date == null) return '--';
-    return '${date.month}/${date.year}';
   }
 
   void _showAboutDialog() {

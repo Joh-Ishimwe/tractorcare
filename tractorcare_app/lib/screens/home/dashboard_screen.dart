@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart'; // <-- Make sure this is in pubspec.yaml
 import '../../providers/auth_provider.dart';
 import '../../providers/tractor_provider.dart';
-import '../../models/tractor.dart';
 import '../../config/colors.dart';
 import '../../config/app_config.dart';
 import '../../widgets/bottom_nav.dart';
@@ -249,12 +248,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
         final tractorIds = provider.tractors.map((t) => t.tractorId).toList();
         final Map<String, Color> statusColor = {
-          for (var t in provider.tractors)
-            t.tractorId: t.status == TractorStatus.critical
-                ? AppColors.error
-                : t.status == TractorStatus.warning
-                    ? AppColors.warning
-                    : AppColors.success
+          for (var t in provider.tractors.asMap().entries)
+            t.value.tractorId: AppColors.chartColors[t.key % AppColors.chartColors.length]
         };
 
         // === MOCK DATA: Replace with real hours from API later ===

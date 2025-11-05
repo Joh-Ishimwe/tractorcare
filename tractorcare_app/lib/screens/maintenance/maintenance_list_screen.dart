@@ -29,7 +29,10 @@ class _MaintenanceListScreenState extends State<MaintenanceListScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    _loadData();
+    // Defer data loading to avoid setState during build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadData();
+    });
   }
 
   @override
@@ -42,7 +45,7 @@ class _MaintenanceListScreenState extends State<MaintenanceListScreen>
     final tractorProvider = Provider.of<TractorProvider>(context, listen: false);
     await tractorProvider.fetchTractors();
     
-    if (tractorProvider.tractors.isNotEmpty && _selectedTractorId == null) {
+    if (tractorProvider.tractors.isNotEmpty && _selectedTractorId == null && mounted) {
       setState(() {
         _selectedTractorId = tractorProvider.tractors.first.id;
       });
@@ -51,7 +54,7 @@ class _MaintenanceListScreenState extends State<MaintenanceListScreen>
   }
 
   Future<void> _loadMaintenance() async {
-    if (_selectedTractorId == null) return;
+    if (_selectedTractorId == null || !mounted) return;
 
     setState(() => _isLoading = true);
 
@@ -65,13 +68,17 @@ class _MaintenanceListScreenState extends State<MaintenanceListScreen>
         completed: true,
       );
 
-      setState(() {
-        _upcomingMaintenance = upcoming;
-        _completedMaintenance = completed;
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _upcomingMaintenance = upcoming;
+          _completedMaintenance = completed;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

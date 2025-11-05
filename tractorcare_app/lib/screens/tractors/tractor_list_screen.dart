@@ -203,13 +203,12 @@ class _TractorListScreenState extends State<TractorListScreen> {
   Widget _buildTractorCard(Tractor tractor) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: GradientStatusCard(
+      child: SimpleTractorCard(
         tractorModel: tractor.model,
         tractorId: tractor.tractorId,
-        hasStatus: tractor.status != TractorStatus.unknown,
-        hasBaseline: true, // You can add a baseline field to the Tractor model
+        statusText: tractor.statusText,
+        statusColor: _getStatusColor(tractor.status),
         tractorIcon: Icons.agriculture,
-        gradientColors: _getStatusGradient(tractor.status),
         onTap: () {
           print('🚜 Tractor List: Navigating to tractor detail');
           print('   - Tractor ID (tractorId): ${tractor.tractorId}');
@@ -278,16 +277,16 @@ class _TractorListScreenState extends State<TractorListScreen> {
   }
 
 
-  List<Color> _getStatusGradient(TractorStatus status) {
+  Color _getStatusColor(TractorStatus status) {
     switch (status) {
       case TractorStatus.good:
-        return AppColors.successGradient;
+        return AppColors.success;
       case TractorStatus.warning:
-        return AppColors.warningGradient;
+        return AppColors.warning;
       case TractorStatus.critical:
-        return AppColors.errorGradient;
+        return AppColors.error;
       default:
-        return AppColors.primaryGradient;
+        return AppColors.textTertiary;
     }
   }
 }
