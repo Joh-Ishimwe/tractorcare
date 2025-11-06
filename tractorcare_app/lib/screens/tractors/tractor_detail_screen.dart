@@ -26,6 +26,7 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
   final ApiService _apiService = ApiService();
   TractorSummary? _tractorSummary;
   List<dynamic>? _maintenanceAlerts;
+  bool _hasBaseline = false;
 
   @override
   void didChangeDependencies() {
@@ -88,9 +89,62 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
       } catch (e) {
         AppConfig.logError('❌ Failed to load maintenance alerts', e);
       }
+
+      // Check baseline status
+      await _checkBaselineStatus();
       
     } catch (e) {
       AppConfig.logError('❌ General maintenance data error', e);
+    }
+  }
+
+  Future<void> _checkBaselineStatus() async {
+    if (_tractorId == null) return;
+    
+    try {
+      AppConfig.log('📊 Checking baseline status for tractor: $_tractorId');
+      
+      // First try to get baseline history to see if any baselines exist
+      try {
+        final baselineHistory = await _apiService.getBaselineHistory(_tractorId!);
+        final historyList = baselineHistory['history'] as List? ?? [];
+        
+        if (historyList.isNotEmpty) {
+          setState(() {
+            _hasBaseline = true;
+          });
+          AppConfig.log('✅ Baseline found in history: ${historyList.length} baselines');
+          return;
+        }
+      } catch (e) {
+        AppConfig.logError('❌ Failed to get baseline history', e);
+      }
+      
+      // If history check fails, try baseline status
+      try {
+        final baselineStatus = await _apiService.getBaselineStatus(_tractorId!);
+        AppConfig.log('📊 Baseline status response: $baselineStatus');
+        
+        setState(() {
+          _hasBaseline = baselineStatus['status'] == 'completed' || 
+                        baselineStatus['status'] == 'active' ||
+                        baselineStatus['has_active_baseline'] == true ||
+                        baselineStatus['baseline_id'] != null;
+        });
+        
+        AppConfig.log('✅ Baseline status loaded: hasBaseline = $_hasBaseline, status = ${baselineStatus['status']}');
+      } catch (e) {
+        AppConfig.logError('❌ Failed to get baseline status', e);
+        setState(() {
+          _hasBaseline = false;
+        });
+      }
+      
+    } catch (e) {
+      AppConfig.logError('❌ Failed to check baseline status', e);
+      setState(() {
+        _hasBaseline = false;
+      });
     }
   }
 
@@ -149,13 +203,13 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
 
                         const SizedBox(height: 16),
 
+                        // Info Card (moved above quick actions)
+                        _buildInfoCard(tractor),
+
+                        const SizedBox(height: 16),
+
                         // Quick Actions 
                         _buildQuickActions(tractor),
-
-                        const SizedBox(height: 24),
-
-                        // Info Card
-                        _buildInfoCard(tractor),
 
                         const SizedBox(height: 16),
 
@@ -295,9 +349,9 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child: const Icon(
-                        Icons.check_circle,
-                        color: AppColors.success,
+                      child: Icon(
+                        _hasBaseline ? Icons.check_circle : Icons.close,
+                        color: _hasBaseline ? AppColors.success : AppColors.error,
                         size: 20,
                       ),
                     ),
@@ -705,9 +759,9 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
             
             const SizedBox(height: 8),
             
-            // Simple usage history list (last 5 days)
+            // Simple usage history list (last 2 records)
             FutureBuilder<List<dynamic>>(
-              future: _apiService.getUsageHistory(_tractorId!, days: 5),
+              future: _apiService.getUsageHistory(_tractorId!, days: 30),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
@@ -740,9 +794,9 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                   );
                 }
 
-                final history = snapshot.data ?? [];
+                final allHistory = snapshot.data ?? [];
                 
-                if (history.isEmpty) {
+                if (allHistory.isEmpty) {
                   return const Center(
                     child: Padding(
                       padding: EdgeInsets.all(32),
@@ -751,8 +805,11 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                   );
                 }
 
+                // Show only last 2 records
+                final recentHistory = allHistory.take(2).toList();
+
                 return Column(
-                  children: history.map<Widget>((record) {
+                  children: recentHistory.map<Widget>((record) {
                     final date = DateTime.parse(record['date']);
                     // Safely parse numeric values that might come as strings
                     final hoursUsed = _parseDouble(record['hours_used']) ?? 0.0;
