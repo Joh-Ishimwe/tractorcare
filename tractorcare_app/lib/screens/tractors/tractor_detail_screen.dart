@@ -60,7 +60,18 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
     final audioProvider = Provider.of<AudioProvider>(context, listen: false);
     
     await tractorProvider.getTractor(_tractorId!);
-    await audioProvider.fetchPredictions(_tractorId!, limit: 5);
+    
+    // After loading tractor, use the actual tractorId from the loaded data for API calls
+    final loadedTractor = tractorProvider.selectedTractor;
+    if (loadedTractor != null) {
+      final actualTractorId = loadedTractor.tractorId;
+      AppConfig.log('🔧 Using actual tractor ID for API calls: $actualTractorId (was: $_tractorId)');
+      
+      await audioProvider.fetchPredictions(actualTractorId, limit: 5);
+      
+      // Update _tractorId to use the actual tractor ID for subsequent calls
+      _tractorId = actualTractorId;
+    }
     
     // Load maintenance summary and alerts
     await _loadMaintenanceData();
@@ -76,10 +87,14 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
       
       // Load tractor summary for maintenance information
       try {
+        AppConfig.log('📡 Attempting to load tractor summary for: $_tractorId');
         _tractorSummary = await _apiService.getTractorSummary(_tractorId!);
         AppConfig.log('✅ Tractor summary loaded: ${_tractorSummary?.alerts.length} alerts');
       } catch (e) {
         AppConfig.logError('❌ Failed to load tractor summary', e);
+        AppConfig.logError('❌ Summary error details: ${e.toString()}');
+        // Continue without summary - the app should still work with basic tractor info
+        _tractorSummary = null;
       }
       
       // Load maintenance alerts  
@@ -203,11 +218,6 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
 
                         const SizedBox(height: 16),
 
-                        // Info Card (moved above quick actions)
-                        _buildInfoCard(tractor),
-
-                        const SizedBox(height: 16),
-
                         // Quick Actions 
                         _buildQuickActions(tractor),
 
@@ -294,6 +304,26 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                       color: Colors.white,
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  if (tractor.purchaseYear != null) ...[
+                    Text(
+                      'Purchased: ${tractor.purchaseYear}',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w400,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                  ],
+                  Text(
+                    'Engine Hours: ${tractor.formattedEngineHours}',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w400,
+                      color: Colors.white,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -364,48 +394,6 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
       ),
     );
   }
-
-  Widget _buildInfoCard(Tractor tractor) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Tractors Information',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: AppColors.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 16),
-            if (tractor.purchaseYear != null) ...[
-              Text(
-                'Purchased Year: ${tractor.purchaseYear}',
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 8),
-            ],
-            Text(
-              'Total Engine Hours: ${tractor.formattedEngineHours}',
-              style: const TextStyle(
-                fontSize: 14,
-                color: AppColors.textPrimary,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-
 
   Widget _buildQuickActions(Tractor tractor) {
     return Padding(
