@@ -25,6 +25,7 @@ class AudioPrediction {
   final double anomalyScore;
   final AnomalyType anomalyType;
   final double? baselineDeviation;
+  final int? durationSeconds;
   final String? baselineStatus;
   final double engineHours;
   final Map<String, dynamic>? metadata;
@@ -40,6 +41,7 @@ class AudioPrediction {
     required this.anomalyScore,
     required this.anomalyType,
     this.baselineDeviation,
+    this.durationSeconds,
     this.baselineStatus,
     required this.engineHours,
     this.metadata,
@@ -57,15 +59,20 @@ class AudioPrediction {
       confidence: (json['confidence'] ?? 0).toDouble(),
       anomalyScore: (json['anomaly_score'] ?? 0).toDouble(),
       anomalyType: _parseAnomalyType(json['anomaly_type']),
-      baselineDeviation: json['baseline_deviation'] != null
-          ? (json['baseline_deviation'] as num).toDouble()
-          : null,
-      baselineStatus: json['baseline_status'],
+    baselineDeviation: json['baseline_deviation'] != null
+      ? (json['baseline_deviation'] as num).toDouble()
+      : // Try nested baseline_comparison.deviation_score
+      (json['baseline_comparison'] != null && json['baseline_comparison']['deviation_score'] != null)
+        ? (json['baseline_comparison']['deviation_score'] as num).toDouble()
+        : null,
+    baselineStatus: json['baseline_status'] ?? (json['baseline_comparison'] != null ? json['baseline_comparison']['combined_status'] : null),
+    durationSeconds: json['duration_seconds'] != null ? (json['duration_seconds'] as num).toInt() : null,
       engineHours: (json['engine_hours'] ?? 0).toDouble(),
       metadata: json['metadata'] as Map<String, dynamic>?,
-      createdAt: json['created_at'] != null
-          ? DateTime.parse(json['created_at'])
-          : DateTime.now(),
+    // Accept both 'created_at' and 'recorded_at' keys used by the backend
+    createdAt: (json['created_at'] ?? json['recorded_at']) != null
+      ? DateTime.parse((json['created_at'] ?? json['recorded_at']).toString())
+      : DateTime.now(),
     );
   }
 

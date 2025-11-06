@@ -258,7 +258,7 @@ class _BaselineSetupScreenState extends State<BaselineSetupScreen> {
           const SizedBox(height: 12),
           _buildStep(
             2,
-            'Record Audio',
+            'Test Sound',
             'Record 3-5 samples of normal engine sound',
             Icons.mic,
             AppColors.info,

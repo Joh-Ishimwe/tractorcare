@@ -274,15 +274,19 @@ class ApiService {
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        return AudioPrediction.fromJson({
+        // Normalize backend response to AudioPrediction.fromJson expectations
+        final Map<String, dynamic> normalized = {
           'id': data['id'],
           'tractor_id': data['tractor_id'],
           'prediction_class': data['prediction_class'],
           'confidence': data['confidence'],
           'anomaly_score': data['anomaly_score'] ?? 0.0,
-          'audio_file_path': data['file_path'],
-          'recorded_at': data['recorded_at'],
-        });
+          'audio_path': data['file_path'] ?? data['audio_file_path'] ?? '',
+          'created_at': data['recorded_at'] ?? data['created_at'],
+          'duration_seconds': data['duration_seconds'] ?? data['duration'] ?? null,
+          'baseline_comparison': data['baseline_comparison'] ?? null,
+        };
+        return AudioPrediction.fromJson(normalized);
       } else {
         throw Exception('Audio upload failed: ${response.body}');
       }
@@ -493,15 +497,18 @@ class ApiService {
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        return AudioPrediction.fromJson({
+        final Map<String, dynamic> normalized = {
           'id': data['id'],
           'tractor_id': data['tractor_id'],
           'prediction_class': data['prediction_class'],
           'confidence': data['confidence'],
           'anomaly_score': data['anomaly_score'] ?? 0.0,
-          'audio_file_path': data['file_path'],
-          'recorded_at': data['recorded_at'],
-        });
+          'audio_path': data['file_path'] ?? data['audio_file_path'] ?? '',
+          'created_at': data['recorded_at'] ?? data['created_at'],
+          'duration_seconds': data['duration_seconds'] ?? data['duration'] ?? null,
+          'baseline_comparison': data['baseline_comparison'] ?? null,
+        };
+        return AudioPrediction.fromJson(normalized);
       } else {
         throw Exception('Audio upload failed: ${response.body}');
       }
@@ -523,12 +530,41 @@ class ApiService {
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        return AudioPrediction.fromJson(data);
+        // Normalize keys similar to upload response
+        final Map<String, dynamic> normalized = Map<String, dynamic>.from(data);
+        if (data['recorded_at'] != null && data['created_at'] == null) normalized['created_at'] = data['recorded_at'];
+        if (data['baseline_comparison'] != null && data['baseline_comparison']['deviation_score'] != null) {
+          normalized['baseline_comparison'] = data['baseline_comparison'];
+        }
+        return AudioPrediction.fromJson(normalized);
       }
       throw Exception('Failed to get prediction - Status: ${response.statusCode}');
     } catch (e) {
       AppConfig.logError('❌ Get prediction error', e);
       rethrow; // No mock fallback - only live data
+    }
+  }
+
+  Future<void> deletePrediction({
+    required String tractorId,
+    required String predictionId,
+  }) async {
+    AppConfig.log('🗑️ Deleting prediction $predictionId for tractor $tractorId');
+    try {
+      final url = AppConfig.getApiUrl('${AppConfig.audioEndpoint}/$tractorId/predictions/$predictionId');
+      final response = await http.delete(
+        Uri.parse(url),
+        headers: _getHeaders(),
+      ).timeout(Duration(seconds: AppConfig.apiTimeout));
+
+      if (response.statusCode == 200 || response.statusCode == 204) {
+        AppConfig.logSuccess('✅ Prediction deleted');
+        return;
+      }
+      throw Exception('Failed to delete prediction - Status: ${response.statusCode}');
+    } catch (e) {
+      AppConfig.logError('❌ Delete prediction error', e);
+      rethrow;
     }
   }
 

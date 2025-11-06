@@ -403,7 +403,7 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
           Expanded(
             child: _buildCompactActionButton(
               icon: Icons.mic,
-              label: 'Record Audio',
+              label: 'Test Sound',
               color: AppColors.success,
               onTap: () {
                 Navigator.pushNamed(
