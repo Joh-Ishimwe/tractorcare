@@ -45,6 +45,13 @@ class _RecordingScreenState extends State<RecordingScreen> {
     _loadRecentPredictions();
   }
 
+  @override
+  void didUpdateWidget(covariant RecordingScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Refresh predictions when returning to this screen
+    _loadRecentPredictions();
+  }
+
   Future<void> _loadRecentPredictions() async {
     if (_isLoadingPredictions) return;
     
@@ -123,6 +130,10 @@ class _RecordingScreenState extends State<RecordingScreen> {
           _recentPredictions.insert(0, prediction);
           if (_recentPredictions.length > 3) _recentPredictions = _recentPredictions.take(3).toList();
         });
+        
+        // Also reload from server to ensure consistency
+        _loadRecentPredictions();
+        
         Navigator.pushReplacementNamed(
           context,
           '/audio-results',
@@ -160,6 +171,10 @@ class _RecordingScreenState extends State<RecordingScreen> {
           _recentPredictions.insert(0, prediction);
           if (_recentPredictions.length > 3) _recentPredictions = _recentPredictions.take(3).toList();
         });
+        
+        // Also reload from server to ensure consistency
+        _loadRecentPredictions();
+        
         Navigator.pushReplacementNamed(
           context,
           '/audio-results',
@@ -626,20 +641,34 @@ class _RecordingScreenState extends State<RecordingScreen> {
                         ),
                       ),
                     ] else ...[
-                      ..._recentPredictions.map((prediction) => Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: AppColors.surfaceVariant,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border(
-                            left: BorderSide(
-                              width: 4,
-                              color: _getPredictionColor(prediction.predictionClass.name),
+                      ..._recentPredictions.map((prediction) => GestureDetector(
+                        onTap: () {
+                          // Navigate to audio results screen with prediction data
+                          Navigator.pushNamed(
+                            context,
+                            '/audio-results',
+                            arguments: {
+                              'prediction': prediction,
+                              'tractor_id': _tractorId,
+                              'engine_hours': _engineHours,
+                              'recording_duration': prediction.durationSeconds ?? 0,
+                            },
+                          );
+                        },
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.surfaceVariant,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border(
+                              left: BorderSide(
+                                width: 4,
+                                color: _getPredictionColor(prediction.predictionClass.name),
+                              ),
                             ),
                           ),
-                        ),
-                        child: Row(
+                          child: Row(
                           children: [
                             Icon(
                               _getPredictionIcon(prediction.predictionClass.name),
@@ -717,6 +746,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
                               icon: Icon(Icons.delete_outline, color: AppColors.error),
                             ),
                           ],
+                        ),
                         ),
                       )).toList(),
                     ],

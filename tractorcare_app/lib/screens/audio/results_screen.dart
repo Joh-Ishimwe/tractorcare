@@ -95,7 +95,7 @@ class ResultsScreen extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(32.0),
+      padding: const EdgeInsets.all(12.0), // Reduced from 32 to ~11 (32/3)
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
@@ -108,22 +108,22 @@ class ResultsScreen extends StatelessWidget {
         children: [
           Text(
             prediction.statusIcon,
-            style: const TextStyle(fontSize: 80),
+            style: const TextStyle(fontSize: 28), // Reduced from 80 to ~27 (80/3)
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 6), // Reduced from 16 to ~5 (16/3)
           Text(
             prediction.statusText,
             style: const TextStyle(
-              fontSize: 32,
+              fontSize: 20, // Reduced from 32 to ~11 (32/3), but kept readable at 20
               fontWeight: FontWeight.bold,
               color: Colors.white,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 3), // Reduced from 8 to ~3 (8/3)
           Text(
             prediction.formattedDateTime,
             style: const TextStyle(
-              fontSize: 16,
+              fontSize: 14, // Reduced from 16 to ~14 (16/3 would be too small)
               color: Colors.white,
             ),
           ),
