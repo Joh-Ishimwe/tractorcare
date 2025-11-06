@@ -64,7 +64,7 @@ class _CustomAppBarState extends State<CustomAppBar> {
                     title: Text(_isOnline ? 'Online' : 'Offline'),
                     trailing: Switch(
                       value: _isOnline,
-                      activeColor: const Color(0xFF4CAF50),
+                      activeThumbColor: const Color(0xFF4CAF50),
                       onChanged: (bool value) {
                         setModalState(() {
                           _isOnline = value;

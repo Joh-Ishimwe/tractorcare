@@ -18,6 +18,7 @@ class BaselineCollectionScreen extends StatefulWidget {
 
 class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
   final int _totalSamples = 5;
+  int _uploadedSamples = 0; // Track uploaded samples for progress
   bool _isRecording = false;
   int _recordingDuration = 0;
   Timer? _timer;
@@ -221,6 +222,10 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
       
       setState(() {
         _baselineHistory = history;
+        // Count uploaded samples for progress tracking (only if in baseline collection mode)
+        if (_baselineId != null) {
+          _uploadedSamples = history.where((item) => item['status'] == 'uploaded').length;
+        }
       });
     } catch (e) {
       setState(() {
@@ -304,6 +309,9 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    // Progress tracking for baseline collection
+                    if (_baselineId != null) _buildProgressTracker(),
+                    
                     // Recording Interface
                     _buildRecordingInterface(),
                     
@@ -314,8 +322,8 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
                     
                     const SizedBox(height: 32),
                     
-                    // Recent Uploads
-                    _buildRecentUploads(),
+                    // History
+                    _buildHistory(),
                   ],
                 ),
               ),
@@ -432,12 +440,67 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
     );
   }
 
-  Widget _buildRecentUploads() {
+  Widget _buildProgressTracker() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 24),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.success.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.success.withOpacity(0.3)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Baseline Collection Progress',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              Text(
+                '$_uploadedSamples/$_totalSamples',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.success,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          LinearProgressIndicator(
+            value: _uploadedSamples / _totalSamples,
+            backgroundColor: Colors.grey[300],
+            valueColor: AlwaysStoppedAnimation<Color>(AppColors.success),
+            minHeight: 6,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _uploadedSamples == _totalSamples 
+              ? 'Baseline collection complete!' 
+              : 'Upload ${_totalSamples - _uploadedSamples} more recordings to complete baseline',
+            style: TextStyle(
+              fontSize: 12,
+              color: AppColors.textSecondary,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHistory() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'Recent Uploads',
+          'History',
           style: TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.bold,
@@ -478,7 +541,7 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
           ),
           const SizedBox(height: 16),
           Text(
-            'No uploads yet',
+            'No recordings yet',
             style: TextStyle(
               fontSize: 16,
               color: Colors.grey[600],
@@ -486,7 +549,7 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Start recording to create your first baseline',
+            'Start recording to create your recording history',
             style: TextStyle(
               fontSize: 14,
               color: Colors.grey[500],
@@ -593,8 +656,8 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Upload'),
-        content: const Text('Are you sure you want to delete this recording?'),
+        title: const Text('Delete Recording'),
+        content: const Text('Are you sure you want to delete this recording from your history?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -624,7 +687,7 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
 
       if (result != null) {
         final file = result.files.first;
-        // Add to recent uploads
+        // Add to history
         setState(() {
           _baselineHistory ??= [];
           _baselineHistory!.insert(0, {
@@ -655,6 +718,10 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
       if (mounted && _baselineHistory != null && index < _baselineHistory!.length) {
         setState(() {
           _baselineHistory![index]['status'] = 'uploaded';
+          // Increment uploaded samples count for progress tracking
+          if (_baselineId != null) {
+            _uploadedSamples++;
+          }
         });
       }
     });

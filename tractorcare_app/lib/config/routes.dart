@@ -17,6 +17,7 @@ import '../screens/maintenance/maintenance_list_screen.dart';
 import '../screens/maintenance/maintenance_detail_screen.dart';
 import '../screens/maintenance/add_maintenance_screen.dart';
 import '../screens/maintenance/maintenance_alerts_screen.dart';
+import '../screens/maintenance/calendar_screen.dart';
 import '../screens/profile/profile_screen.dart';
 import '../screens/profile/settings_screen.dart';
 import '../screens/home/statistics_screen.dart';
@@ -40,6 +41,7 @@ class AppRoutes {
   static const String maintenanceDetail = '/maintenance-detail';
   static const String maintenanceAlerts = '/maintenance-alerts';
   static const String addMaintenance = '/add-maintenance';
+  static const String calendar = '/calendar';
   static const String profile = '/profile';
   static const String settings = '/settings';
   static const String statistics = '/statistics';
@@ -66,6 +68,7 @@ class AppRoutes {
           return MaintenanceAlertsScreen(tractorId: args['tractor_id']);
         },
         addMaintenance: (context) => const AddMaintenanceScreen(),
+        calendar: (context) => const CalendarScreen(),
         profile: (context) => const ProfileScreen(),
         settings: (context) => const SettingsScreen(),
         statistics: (context) => const StatisticsScreen(),

@@ -9,9 +9,9 @@ class MaintenanceAlertsScreen extends StatefulWidget {
   final String tractorId;
 
   const MaintenanceAlertsScreen({
-    Key? key,
+    super.key,
     required this.tractorId,
-  }) : super(key: key);
+  });
 
   @override
   State<MaintenanceAlertsScreen> createState() => _MaintenanceAlertsScreenState();

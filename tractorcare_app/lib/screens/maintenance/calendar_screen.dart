@@ -6,6 +6,9 @@ import 'package:intl/intl.dart';
 import '../../providers/tractor_provider.dart';
 import '../../widgets/custom_app_bar.dart';
 import '../../config/colors.dart';
+import '../../config/app_config.dart';
+import '../../services/api_service.dart';
+import '../../models/maintenance.dart';
 
 class CalendarScreen extends StatefulWidget {
   const CalendarScreen({super.key});
@@ -19,8 +22,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
   DateTime? _selectedDay;
   final PageController _pageController = PageController();
 
-  // Mock events: {DateTime: List<String>} → List of tractor IDs
-  final Map<DateTime, List<String>> _events = {};
+  // Real maintenance events: {DateTime: List<Maintenance>}
+  final Map<DateTime, List<Maintenance>> _maintenanceEvents = {};
+  bool _isLoading = false;
 
   @override
   void initState() {
@@ -36,33 +40,67 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }
 
   Future<void> _loadEvents() async {
-    final provider = Provider.of<TractorProvider>(context, listen: false);
-    // TODO: Replace with real API call to fetch maintenance schedule
-    await Future.delayed(const Duration(milliseconds: 300)); // Simulate API
-
-    setState(() {
-      _events.clear();
-      final tractors = provider.tractors.map((t) => t.tractorId).toList();
-
-      // Mock: Assign random tractors to dates in November 2025
-      final dates = [
-        DateTime(2025, 11, 4),
-        DateTime(2025, 11, 5),
-        DateTime(2025, 11, 8),
-        DateTime(2025, 11, 12),
-        DateTime(2025, 11, 15),
-        DateTime(2025, 11, 19),
-        DateTime(2025, 11, 22),
-        DateTime(2025, 11, 25),
-        DateTime(2025, 11, 28),
-      ];
-
-      for (var date in dates) {
-        final count = 1 + (date.day % 3); // 1–3 tractors per day
-        final shuffled = (tractors..shuffle()).take(count).toList();
-        _events[DateTime(date.year, date.month, date.day)] = shuffled;
+    setState(() => _isLoading = true);
+    
+    final tractorProvider = Provider.of<TractorProvider>(context, listen: false);
+    final apiService = ApiService();
+    
+    AppConfig.log('Loading maintenance calendar data...');
+    
+    try {
+      await tractorProvider.fetchTractors();
+      
+      Map<DateTime, List<Maintenance>> events = {};
+      
+      // Load maintenance tasks for all tractors
+      for (final tractor in tractorProvider.tractors) {
+        try {
+          // Get both upcoming and completed maintenance
+          final upcomingTasks = await apiService.getMaintenanceTasks(tractor.id, completed: false);
+          final completedTasks = await apiService.getMaintenanceTasks(tractor.id, completed: true);
+          
+          final allTasks = [...upcomingTasks, ...completedTasks];
+          
+          AppConfig.log('Loaded ${allTasks.length} maintenance tasks for tractor ${tractor.id}');
+          
+          // Group tasks by date
+          for (final task in allTasks) {
+            final dateKey = DateTime(
+              task.dueDate.year,
+              task.dueDate.month,
+              task.dueDate.day,
+            );
+            
+            if (events[dateKey] == null) {
+              events[dateKey] = [];
+            }
+            events[dateKey]!.add(task);
+          }
+        } catch (e) {
+          AppConfig.logError('Failed to load maintenance for tractor ${tractor.id}', e);
+          // Continue with other tractors
+        }
       }
-    });
+      
+      if (mounted) {
+        setState(() {
+          _maintenanceEvents.clear();
+          _maintenanceEvents.addAll(events);
+        });
+      }
+    } catch (e) {
+      AppConfig.logError('Failed to load maintenance calendar data', e);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load maintenance data: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   void _showScheduleBottomSheet() {
@@ -159,8 +197,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
-  List<String> _getEventsForDay(DateTime day) {
-    return _events[DateTime(day.year, day.month, day.day)] ?? [];
+  List<Maintenance> _getEventsForDay(DateTime day) {
+    return _maintenanceEvents[DateTime(day.year, day.month, day.day)] ?? [];
   }
 
 
@@ -284,15 +322,32 @@ class _CalendarScreenState extends State<CalendarScreen> {
                           const SizedBox(height: 2),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
-                            children: events.take(3).map((event) => Container(
-                              width: 6,
-                              height: 6,
-                              margin: const EdgeInsets.only(right: 2),
-                              decoration: BoxDecoration(
-                                color: AppColors.primary,
-                                shape: BoxShape.circle,
-                              ),
-                            )).toList(),
+                            children: events.take(3).map((maintenance) {
+                              Color indicatorColor;
+                              switch (maintenance.status) {
+                                case MaintenanceStatus.overdue:
+                                  indicatorColor = AppColors.error;
+                                  break;
+                                case MaintenanceStatus.due:
+                                  indicatorColor = AppColors.warning;
+                                  break;
+                                case MaintenanceStatus.completed:
+                                  indicatorColor = AppColors.success;
+                                  break;
+                                default:
+                                  indicatorColor = AppColors.primary;
+                              }
+                              
+                              return Container(
+                                width: 6,
+                                height: 6,
+                                margin: const EdgeInsets.only(right: 2),
+                                decoration: BoxDecoration(
+                                  color: indicatorColor,
+                                  shape: BoxShape.circle,
+                                ),
+                              );
+                            }).toList(),
                           ),
                         ],
                       ],
@@ -318,23 +373,45 @@ class _CalendarScreenState extends State<CalendarScreen> {
             // Header + Schedule Button
             Padding(
               padding: const EdgeInsets.all(16.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Schedule and track maintenance activities',
-                    style: TextStyle(fontSize: 14, color: Colors.grey),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Schedule and track maintenance activities',
+                        style: TextStyle(fontSize: 14, color: Colors.grey),
+                      ),
+                      ElevatedButton.icon(
+                        onPressed: _showScheduleBottomSheet,
+                        icon: const Icon(Icons.add, size: 18),
+                        label: const Text('Schedule Maintenance'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                      ),
+                    ],
                   ),
-                  ElevatedButton.icon(
-                    onPressed: _showScheduleBottomSheet,
-                    icon: const Icon(Icons.add, size: 18),
-                    label: const Text('Schedule Maintenance'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  if (_isLoading) ...[
+                    const SizedBox(height: 8),
+                    const Row(
+                      children: [
+                        SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        SizedBox(width: 8),
+                        Text(
+                          'Loading maintenance data...',
+                          style: TextStyle(fontSize: 12, color: Colors.grey),
+                        ),
+                      ],
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
@@ -353,27 +430,136 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Events on ${DateFormat('MMM dd, yyyy').format(_selectedDay!)}',
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 8),
-                    ...(_getEventsForDay(_selectedDay!).map((event) => 
-                      Container(
-                        margin: const EdgeInsets.only(bottom: 4),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: AppColors.primary),
+                    Row(
+                      children: [
+                        Text(
+                          'Maintenance on ${DateFormat('MMM dd, yyyy').format(_selectedDay!)}',
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                         ),
-                        child: Text('Tractor: $event', style: const TextStyle(fontSize: 14)),
-                      )
-                    ).toList()),
-                    if (_getEventsForDay(_selectedDay!).isEmpty)
-                      const Text(
-                        'No maintenance scheduled for this day',
-                        style: TextStyle(color: Colors.grey),
+                        const Spacer(),
+                        if (_isLoading)
+                          const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    ...(_getEventsForDay(_selectedDay!).map((maintenance) {
+                      final tractorProvider = Provider.of<TractorProvider>(context, listen: false);
+                      final tractor = tractorProvider.tractors.where(
+                        (t) => t.id == maintenance.tractorId,
+                      ).firstOrNull;
+                      
+                      Color statusColor;
+                      String statusText;
+                      IconData statusIcon;
+                      
+                      switch (maintenance.status) {
+                        case MaintenanceStatus.overdue:
+                          statusColor = AppColors.error;
+                          statusText = 'OVERDUE';
+                          statusIcon = Icons.warning;
+                          break;
+                        case MaintenanceStatus.due:
+                          statusColor = AppColors.warning;
+                          statusText = 'DUE';
+                          statusIcon = Icons.schedule;
+                          break;
+                        case MaintenanceStatus.completed:
+                          statusColor = AppColors.success;
+                          statusText = 'COMPLETED';
+                          statusIcon = Icons.check_circle;
+                          break;
+                        default:
+                          statusColor = AppColors.primary;
+                          statusText = 'SCHEDULED';
+                          statusIcon = Icons.calendar_today;
+                      }
+                      
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: statusColor.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: statusColor.withValues(alpha: 0.3)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(statusIcon, color: statusColor, size: 16),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    maintenance.customType ?? 'Maintenance',
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: statusColor.withValues(alpha: 0.2),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Text(
+                                    statusText,
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                      color: statusColor,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Tractor: ${tractor?.model ?? maintenance.tractorId}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                            if (maintenance.notes != null && maintenance.notes!.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                maintenance.notes!,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.textSecondary,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      );
+                    }).toList()),
+                    if (_getEventsForDay(_selectedDay!).isEmpty && !_isLoading)
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        child: const Column(
+                          children: [
+                            Icon(
+                              Icons.event_available,
+                              color: Colors.grey,
+                              size: 32,
+                            ),
+                            SizedBox(height: 8),
+                            Text(
+                              'No maintenance scheduled for this day',
+                              style: TextStyle(color: Colors.grey),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
                       ),
                   ],
                 ),

@@ -114,23 +114,25 @@ class _RecordingScreenState extends State<RecordingScreen>
   }
 
   Future<void> _uploadAudio(String filePath) async {
-    // Show loading dialog
+    // Show enhanced loading dialog with steps
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => const Center(
-        child: Card(
-          child: Padding(
-            padding: EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(height: 16),
-                Text('Analyzing audio...'),
-              ],
-            ),
-          ),
+      builder: (context) => AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            const Text('Analyzing Engine Sound...', 
+              style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Text('Processing $_recordingDuration seconds of audio',
+              style: TextStyle(color: Colors.grey[600])),
+            const SizedBox(height: 16),
+            const Text('• Uploading audio file\n• Running ML analysis\n• Comparing with baseline\n• Generating recommendations',
+              style: TextStyle(fontSize: 12)),
+          ],
         ),
       ),
     );
@@ -149,16 +151,63 @@ class _RecordingScreenState extends State<RecordingScreen>
     Navigator.pop(context);
 
     if (prediction != null) {
-      // Navigate to results
+      // Navigate to results with enhanced arguments
       Navigator.pushReplacementNamed(
         context,
         '/audio-results',
-        arguments: prediction,
+        arguments: {
+          'prediction': prediction,
+          'tractor_id': _tractorId,
+          'engine_hours': _engineHours,
+          'recording_duration': _recordingDuration,
+        },
       );
     } else {
-      _showError(audioProvider.error ?? 'Upload failed');
-      Navigator.pop(context);
+      _showError(audioProvider.error ?? 'Analysis failed. Please try again.');
+      
+      // Show option to retry or view baseline collection
+      _showRetryOptions();
     }
+  }
+
+  void _showRetryOptions() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Analysis Failed'),
+        content: const Text('Would you like to try recording again or check your baseline samples?'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context); // Close dialog
+              Navigator.pop(context); // Go back to tractor detail
+            },
+            child: const Text('Go Back'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context); // Close dialog
+              Navigator.pushReplacementNamed(
+                context,
+                '/baseline-collection',
+                arguments: {
+                  'tractorId': _tractorId,
+                  'tractorHours': _engineHours,
+                },
+              );
+            },
+            child: const Text('Check Baseline'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context); // Close dialog
+              _startRecording(); // Retry recording
+            },
+            child: const Text('Try Again'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _cancelRecording() async {

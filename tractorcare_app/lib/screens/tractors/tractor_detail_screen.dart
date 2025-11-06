@@ -7,7 +7,9 @@ import 'package:provider/provider.dart';
 import '../../providers/tractor_provider.dart';
 import '../../providers/audio_provider.dart';
 import '../../models/tractor.dart';
+import '../../models/tractor_summary.dart';
 import '../../config/colors.dart';
+import '../../config/app_config.dart';
 import '../../services/api_service.dart';
 import '../usage/usage_history_screen.dart';
 
@@ -22,6 +24,8 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
   String? _tractorId;
   bool _isLoading = true;
   final ApiService _apiService = ApiService();
+  TractorSummary? _tractorSummary;
+  List<dynamic>? _maintenanceAlerts;
 
   @override
   void didChangeDependencies() {
@@ -29,14 +33,14 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
     if (_tractorId == null) {
       _tractorId = ModalRoute.of(context)!.settings.arguments as String;
       
-      print('🔍 Tractor Detail Screen: Received ID: $_tractorId');
-      print('   - Length: ${_tractorId!.length}');
-      print('   - Is ObjectID format (24 hex chars): ${_tractorId!.length == 24 && RegExp(r'^[0-9a-fA-F]{24}$').hasMatch(_tractorId!)}');
-      print('   - Is TractorID format (starts with T): ${_tractorId!.startsWith('T')}');
+      AppConfig.log('🔍 Tractor Detail Screen: Received ID: $_tractorId');
+      AppConfig.log('   - Length: ${_tractorId!.length}');
+      AppConfig.log('   - Is ObjectID format (24 hex chars): ${_tractorId!.length == 24 && RegExp(r'^[0-9a-fA-F]{24}$').hasMatch(_tractorId!)}');
+      AppConfig.log('   - Is TractorID format (starts with T): ${_tractorId!.startsWith('T')}');
       
       if (_tractorId!.length == 24 && RegExp(r'^[0-9a-fA-F]{24}$').hasMatch(_tractorId!)) {
-        print('⚠️ WARNING: Received ObjectID format, this will cause 404 errors!');
-        print('   Expected format: T007, T001, etc.');
+        AppConfig.logError('⚠️ WARNING: Received ObjectID format, this will cause 404 errors!');
+        AppConfig.logError('   Expected format: T007, T001, etc.');
       }
       
       // Defer loading until after first frame to avoid notifying listeners during build
@@ -57,9 +61,37 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
     await tractorProvider.getTractor(_tractorId!);
     await audioProvider.fetchPredictions(_tractorId!, limit: 5);
     
-    // Load maintenance summary (removed - now showing static next maintenance)
+    // Load maintenance summary and alerts
+    await _loadMaintenanceData();
     
     setState(() => _isLoading = false);
+  }
+
+  Future<void> _loadMaintenanceData() async {
+    if (_tractorId == null) return;
+    
+    try {
+      AppConfig.log('🔧 Loading maintenance data for tractor: $_tractorId');
+      
+      // Load tractor summary for maintenance information
+      try {
+        _tractorSummary = await _apiService.getTractorSummary(_tractorId!);
+        AppConfig.log('✅ Tractor summary loaded: ${_tractorSummary?.alerts.length} alerts');
+      } catch (e) {
+        AppConfig.logError('❌ Failed to load tractor summary', e);
+      }
+      
+      // Load maintenance alerts  
+      try {
+        _maintenanceAlerts = await _apiService.getMaintenanceAlerts(_tractorId!);
+        AppConfig.log('✅ Maintenance alerts loaded: ${_maintenanceAlerts?.length} alerts');
+      } catch (e) {
+        AppConfig.logError('❌ Failed to load maintenance alerts', e);
+      }
+      
+    } catch (e) {
+      AppConfig.logError('❌ General maintenance data error', e);
+    }
   }
 
   // Helper method to safely parse double values that might come as strings
@@ -160,7 +192,7 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: AppColors.success.withOpacity(0.3),
+              color: AppColors.success.withValues(alpha: 0.3),
               blurRadius: 12,
               offset: const Offset(0, 6),
             ),
@@ -329,13 +361,16 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
           Expanded(
             child: _buildCompactActionButton(
               icon: Icons.mic,
-              label: 'Test Audio',
+              label: 'Record Audio',
               color: AppColors.success,
               onTap: () {
                 Navigator.pushNamed(
                   context,
-                  '/audio-test',
-                  arguments: tractor.tractorId,
+                  '/recording',
+                  arguments: {
+                    'tractor_id': tractor.tractorId,
+                    'engine_hours': tractor.engineHours,
+                  },
                 );
               },
             ),
@@ -406,20 +441,72 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
   }
 
   Widget _buildNextMaintenanceItem() {
+    // Get next maintenance from loaded data
+    dynamic nextMaintenance;
+    Color statusColor = Colors.orange;
+    String statusText = 'Due Soon';
+    
+    if (_maintenanceAlerts != null && _maintenanceAlerts!.isNotEmpty) {
+      // Sort alerts by due date and get the most urgent one
+      final sortedAlerts = List<dynamic>.from(_maintenanceAlerts!)
+        ..sort((a, b) {
+          final aDate = DateTime.tryParse(a['due_date']?.toString() ?? '') ?? DateTime.now().add(const Duration(days: 365));
+          final bDate = DateTime.tryParse(b['due_date']?.toString() ?? '') ?? DateTime.now().add(const Duration(days: 365));
+          return aDate.compareTo(bDate);
+        });
+      
+      nextMaintenance = sortedAlerts.first;
+      
+      // Determine status color based on urgency
+      final dueDate = DateTime.tryParse(nextMaintenance['due_date']?.toString() ?? '');
+      if (dueDate != null) {
+        final daysUntilDue = dueDate.difference(DateTime.now()).inDays;
+        if (daysUntilDue < 0) {
+          statusColor = Colors.red;
+          statusText = 'Overdue';
+        } else if (daysUntilDue <= 7) {
+          statusColor = Colors.orange;
+          statusText = 'Due Soon';
+        } else {
+          statusColor = Colors.green;
+          statusText = 'Upcoming';
+        }
+      }
+    } else if (_tractorSummary?.alerts != null && _tractorSummary!.alerts.isNotEmpty) {
+      // Fallback to summary alerts
+      final sortedAlerts = List.from(_tractorSummary!.alerts)
+        ..sort((a, b) {
+          final aDate = a.dueDate ?? DateTime.now().add(const Duration(days: 365));
+          final bDate = b.dueDate ?? DateTime.now().add(const Duration(days: 365));
+          return aDate.compareTo(bDate);
+        });
+      
+      final alert = sortedAlerts.first;
+      nextMaintenance = {
+        'task_name': alert.task,
+        'due_date': alert.dueDate?.toIso8601String(),
+        'description': alert.description,
+      };
+    }
+
+    // Get maintenance info
+    final taskName = nextMaintenance?['task_name'] ?? nextMaintenance?['description'] ?? 'Engine oil and filter change';
+    final dueInfo = _formatMaintenanceDue(nextMaintenance);
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.orange.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.orange.withOpacity(0.3)),
+        color: statusColor.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: statusColor.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
           Container(
             width: 12,
             height: 12,
-            decoration: const BoxDecoration(
-              color: Colors.orange,
+            decoration: BoxDecoration(
+              color: statusColor,
               shape: BoxShape.circle,
             ),
           ),
@@ -428,9 +515,9 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Engine oil and filter change',
-                  style: TextStyle(
+                Text(
+                  taskName,
+                  style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
                     color: AppColors.textPrimary,
@@ -438,7 +525,7 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '20h or 70 remaining',
+                  dueInfo,
                   style: TextStyle(
                     fontSize: 14,
                     color: AppColors.textSecondary,
@@ -447,9 +534,42 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
               ],
             ),
           ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: statusColor.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              statusText,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: statusColor,
+              ),
+            ),
+          ),
         ],
       ),
     );
+  }
+
+  String _formatMaintenanceDue(dynamic maintenance) {
+    if (maintenance == null) return '20h or 70 remaining';
+    
+    final dueDate = DateTime.tryParse(maintenance['due_date']?.toString() ?? '');
+    if (dueDate == null) return 'Due date not set';
+    
+    final now = DateTime.now();
+    final difference = dueDate.difference(now);
+    
+    if (difference.inDays > 0) {
+      return '${difference.inDays} days remaining';
+    } else if (difference.inDays == 0) {
+      return 'Due today';
+    } else {
+      return '${difference.inDays.abs()} days overdue';
+    }
   }
 
 
@@ -473,7 +593,7 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
+                  color: color.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(icon, size: 20, color: color),
@@ -589,11 +709,38 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
             FutureBuilder<List<dynamic>>(
               future: _apiService.getUsageHistory(_tractorId!, days: 5),
               builder: (context, snapshot) {
-                if (!snapshot.hasData) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
                 }
+                
+                if (snapshot.hasError) {
+                  AppConfig.logError('Usage history error', snapshot.error);
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        children: [
+                          Icon(Icons.error_outline, color: AppColors.error, size: 32),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Failed to load usage history',
+                            style: TextStyle(color: AppColors.error),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Check your internet connection and try again',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }
 
-                final history = snapshot.data!;
+                final history = snapshot.data ?? [];
                 
                 if (history.isEmpty) {
                   return const Center(

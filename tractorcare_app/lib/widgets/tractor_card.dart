@@ -9,10 +9,10 @@ class TractorCard extends StatelessWidget {
   final VoidCallback? onTap;
 
   const TractorCard({
-    Key? key,
+    super.key,
     required this.tractor,
     this.onTap,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -146,10 +146,10 @@ class CompactTractorCard extends StatelessWidget {
   final VoidCallback? onTap;
 
   const CompactTractorCard({
-    Key? key,
+    super.key,
     required this.tractor,
     this.onTap,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

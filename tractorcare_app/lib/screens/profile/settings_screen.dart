@@ -5,7 +5,7 @@ import '../../services/storage_service.dart';
 import '../../config/colors.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({Key? key}) : super(key: key);
+  const SettingsScreen({super.key});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -100,7 +100,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     title: const Text('Maintenance Reminders'),
                     subtitle: const Text('Get notified when maintenance is due'),
                     value: _maintenanceNotifications,
-                    activeColor: AppColors.primary,
+                    activeThumbColor: AppColors.primary,
                     onChanged: (value) {
                       setState(() => _maintenanceNotifications = value);
                       _saveNotificationSetting('maintenance_notifications', value);
@@ -122,7 +122,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     title: const Text('Audio Test Results'),
                     subtitle: const Text('Get notified of audio test results'),
                     value: _audioTestNotifications,
-                    activeColor: AppColors.primary,
+                    activeThumbColor: AppColors.primary,
                     onChanged: (value) {
                       setState(() => _audioTestNotifications = value);
                       _saveNotificationSetting('audio_test_notifications', value);
@@ -144,7 +144,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     title: const Text('System Notifications'),
                     subtitle: const Text('App updates and announcements'),
                     value: _systemNotifications,
-                    activeColor: AppColors.primary,
+                    activeThumbColor: AppColors.primary,
                     onChanged: (value) {
                       setState(() => _systemNotifications = value);
                       _saveNotificationSetting('system_notifications', value);

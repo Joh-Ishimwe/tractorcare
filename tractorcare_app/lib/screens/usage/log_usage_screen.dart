@@ -9,10 +9,10 @@ class LogUsageScreen extends StatefulWidget {
   final double currentHours;
 
   const LogUsageScreen({
-    Key? key,
+    super.key,
     required this.tractorId,
     required this.currentHours,
-  }) : super(key: key);
+  });
 
   @override
   State<LogUsageScreen> createState() => _LogUsageScreenState();

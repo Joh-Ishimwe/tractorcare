@@ -823,21 +823,50 @@ class ApiService {
   }
 
   Future<List<dynamic>> getUsageHistory(String tractorId, {int days = 30}) async {
+    await ensureTokenLoaded();
+    
     try {
+      AppConfig.log('📊 Fetching usage history for tractor: $tractorId (last $days days)');
+      
+      final url = '${AppConfig.getApiUrl(AppConfig.usageEndpoint)}/$tractorId/history';
+      final uri = Uri.parse(url).replace(queryParameters: {
+        'days': days.toString(),
+      });
+      
+      AppConfig.log('📡 Usage history URL: $uri');
+      
       final response = await http.get(
-        Uri.parse('$baseUrl${AppConfig.usageEndpoint}/$tractorId/history').replace(queryParameters: {
-          'days': days.toString(),
-        }),
+        uri,
         headers: _getHeaders(),
-      );
+      ).timeout(Duration(seconds: AppConfig.apiTimeout));
+      
+      AppConfig.log('📡 Usage history response status: ${response.statusCode}');
+      AppConfig.log('📄 Usage history response body: ${response.body}');
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        return data['history'] ?? data;
+        
+        // Handle different response formats
+        List<dynamic> historyList;
+        if (data is List) {
+          historyList = data;
+        } else if (data is Map && data['history'] != null) {
+          historyList = data['history'] is List ? data['history'] : [];
+        } else if (data is Map && data['data'] != null) {
+          historyList = data['data'] is List ? data['data'] : [];
+        } else {
+          historyList = [];
+        }
+        
+        AppConfig.log('✅ Usage history parsed: ${historyList.length} records');
+        return historyList;
+      } else if (response.statusCode == 404) {
+        AppConfig.log('ℹ️ No usage history found for tractor $tractorId');
+        return [];
       }
-      throw Exception('Failed to get usage history');
+      throw Exception('Failed to get usage history - Status: ${response.statusCode}');
     } catch (e) {
-      print('Usage history error: $e');
+      AppConfig.logError('❌ Usage history error', e);
       rethrow;
     }
   }

@@ -6,7 +6,7 @@ import '../../services/api_service.dart';
 import '../../config/colors.dart';
 
 class AddMaintenanceScreen extends StatefulWidget {
-  const AddMaintenanceScreen({Key? key}) : super(key: key);
+  const AddMaintenanceScreen({super.key});
 
   @override
   State<AddMaintenanceScreen> createState() => _AddMaintenanceScreenState();
@@ -29,9 +29,7 @@ class _AddMaintenanceScreenState extends State<AddMaintenanceScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_tractorId == null) {
-      _tractorId = ModalRoute.of(context)!.settings.arguments as String?;
-    }
+    _tractorId ??= ModalRoute.of(context)!.settings.arguments as String?;
   }
 
   @override

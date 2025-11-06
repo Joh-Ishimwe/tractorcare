@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart'; // <-- Make sure this is in pubspec.yaml
+import 'package:intl/intl.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/tractor_provider.dart';
 import '../../config/colors.dart';
@@ -12,6 +13,9 @@ import '../../widgets/api_connection_test.dart';
 import '../../widgets/auth_debug_widget.dart';
 import '../../widgets/debug_api_widget.dart';
 import '../../widgets/custom_app_bar.dart';
+import '../../services/api_service.dart';
+import '../../models/maintenance.dart';
+import '../../models/tractor_summary.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -22,6 +26,9 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   int _currentIndex = 0;
+  List<Maintenance> _allMaintenanceTasks = [];
+  Map<String, TractorSummary> _tractorSummaries = {};
+  bool _isLoadingActivities = false;
 
   @override
   void initState() {
@@ -42,11 +49,52 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return;
     }
 
+    setState(() => _isLoadingActivities = true);
+
     try {
       await tractorProvider.fetchTractors();
       AppConfig.log('Tractors fetched: ${tractorProvider.tractors.length}');
+      
+      // Load maintenance data for all tractors
+      await _loadMaintenanceActivities();
     } catch (e) {
       AppConfig.logError('Failed to fetch tractors', e);
+    } finally {
+      if (mounted) setState(() => _isLoadingActivities = false);
+    }
+  }
+
+  Future<void> _loadMaintenanceActivities() async {
+    final tractorProvider = Provider.of<TractorProvider>(context, listen: false);
+    final apiService = ApiService();
+    
+    AppConfig.log('Loading maintenance activities for ${tractorProvider.tractors.length} tractors');
+    
+    List<Maintenance> allTasks = [];
+    Map<String, TractorSummary> summaries = {};
+
+    for (final tractor in tractorProvider.tractors) {
+      try {
+        // Get maintenance alerts for this tractor
+        final tasks = await apiService.getMaintenanceTasks(tractor.id, completed: false);
+        allTasks.addAll(tasks);
+        
+        // Get tractor summary for usage data
+        final summary = await apiService.getTractorSummary(tractor.id);
+        summaries[tractor.id] = summary;
+        
+        AppConfig.log('Loaded ${tasks.length} maintenance tasks for tractor ${tractor.id}');
+      } catch (e) {
+        AppConfig.logError('Failed to load data for tractor ${tractor.id}', e);
+        // Continue with other tractors even if one fails
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _allMaintenanceTasks = allTasks;
+        _tractorSummaries = summaries;
+      });
     }
   }
 
@@ -380,23 +428,333 @@ class _DashboardScreenState extends State<DashboardScreen> {
               'Recent Activity',
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
             ),
-            TextButton(onPressed: () {}, child: const Text('View All')),
+            TextButton(
+              onPressed: () => Navigator.pushNamed(context, '/maintenance'),
+              child: const Text('View All'),
+            ),
           ],
         ),
         const SizedBox(height: 12),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: _buildActivityItem(
-              Icons.info_outline,
-              'No recent activity',
-              'Start by adding a tractor or running an audio test',
-              AppColors.textTertiary,
+        if (_isLoadingActivities)
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.all(16.0),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 12),
+                  Text('Loading maintenance activities...'),
+                ],
+              ),
             ),
-          ),
-        ),
+          )
+        else if (_allMaintenanceTasks.isEmpty)
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: _buildActivityItem(
+                Icons.info_outline,
+                'No maintenance activities',
+                'All tractors are up to date with maintenance',
+                AppColors.textTertiary,
+              ),
+            ),
+          )
+        else
+          ..._buildMaintenanceActivityCards(),
+        
+        const SizedBox(height: 12),
+        _buildUsageComparisonCard(),
       ],
     );
+  }
+
+  List<Widget> _buildMaintenanceActivityCards() {
+    // Sort maintenance tasks by priority: overdue -> due -> upcoming
+    final sortedTasks = List<Maintenance>.from(_allMaintenanceTasks);
+    sortedTasks.sort((a, b) {
+      final aScore = a.status == MaintenanceStatus.overdue ? 3 
+                   : a.status == MaintenanceStatus.due ? 2 
+                   : 1;
+      final bScore = b.status == MaintenanceStatus.overdue ? 3 
+                   : b.status == MaintenanceStatus.due ? 2 
+                   : 1;
+      
+      if (aScore != bScore) return bScore.compareTo(aScore);
+      return a.dueDate.compareTo(b.dueDate);
+    });
+
+    // Show up to 3 most important maintenance items
+    final tasksToShow = sortedTasks.take(3);
+    
+    return tasksToShow.map((task) {
+      final tractorProvider = Provider.of<TractorProvider>(context, listen: false);
+      final tractor = tractorProvider.tractors.firstWhere(
+        (t) => t.id == task.tractorId,
+        orElse: () => tractorProvider.tractors.first, // Fallback
+      );
+      
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: _buildMaintenanceActivityItem(task, tractor.model),
+        ),
+      );
+    }).toList();
+  }
+
+  Widget _buildMaintenanceActivityItem(Maintenance task, String tractorName) {
+    IconData icon;
+    Color color;
+    String statusText;
+    
+    switch (task.status) {
+      case MaintenanceStatus.overdue:
+        icon = Icons.warning;
+        color = Colors.red;
+        statusText = 'OVERDUE';
+        break;
+      case MaintenanceStatus.due:
+        icon = Icons.schedule;
+        color = Colors.orange;
+        statusText = 'DUE SOON';
+        break;
+      default:
+        icon = Icons.calendar_today;
+        color = AppColors.primary;
+        statusText = 'UPCOMING';
+    }
+    
+    final daysDiff = task.dueDate.difference(DateTime.now()).inDays;
+    final dueDateText = daysDiff < 0 
+        ? '${-daysDiff} days overdue'
+        : daysDiff == 0 
+            ? 'Due today'
+            : daysDiff <= 7
+                ? 'Due in $daysDiff days'
+                : DateFormat('MMM dd, yyyy').format(task.dueDate);
+    
+    return Column(
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, color: color, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          task.customType ?? 'Maintenance',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: color.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          statusText,
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: color,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '$tractorName • $dueDateText',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        if (task.notes != null && task.notes!.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceVariant,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              task.notes!,
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppColors.textSecondary,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildUsageComparisonCard() {
+    if (_tractorSummaries.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.analytics,
+                    color: AppColors.primary,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Daily Usage Comparison',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      Text(
+                        'Engine hours across all tractors',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ..._buildUsageComparisonItems(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildUsageComparisonItems() {
+    final tractorProvider = Provider.of<TractorProvider>(context, listen: false);
+    final items = <Widget>[];
+    
+    // Sort by engine hours descending
+    final sortedSummaries = _tractorSummaries.entries.toList();
+    sortedSummaries.sort((a, b) => b.value.engineHours.compareTo(a.value.engineHours));
+    
+    final maxHours = sortedSummaries.isNotEmpty ? sortedSummaries.first.value.engineHours : 1.0;
+    
+    for (final entry in sortedSummaries.take(4)) { // Show top 4 tractors
+      final summary = entry.value;
+      final tractor = tractorProvider.tractors.firstWhere(
+        (t) => t.id == entry.key,
+        orElse: () => tractorProvider.tractors.first,
+      );
+      
+      final percentage = maxHours > 0 ? (summary.engineHours / maxHours) : 0.0;
+      
+      items.add(
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 80,
+                child: Text(
+                  tractor.model,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Container(
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceVariant,
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                  child: FractionallySizedBox(
+                    alignment: Alignment.centerLeft,
+                    widthFactor: percentage,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: AppColors.primary,
+                        borderRadius: BorderRadius.circular(3),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 40,
+                child: Text(
+                  '${summary.engineHours.toInt()}h',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textSecondary,
+                  ),
+                  textAlign: TextAlign.end,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    
+    return items;
   }
 
   Widget _buildActivityItem(IconData icon, String title, String subtitle, Color color) {

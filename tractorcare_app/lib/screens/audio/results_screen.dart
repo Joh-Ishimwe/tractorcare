@@ -9,7 +9,22 @@ class ResultsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final prediction = ModalRoute.of(context)!.settings.arguments as AudioPrediction;
+    final args = ModalRoute.of(context)!.settings.arguments;
+    
+    // Handle both old and new argument formats
+    AudioPrediction prediction;
+    String? tractorId;
+    double? engineHours;
+    int? recordingDuration;
+    
+    if (args is Map<String, dynamic>) {
+      prediction = args['prediction'] as AudioPrediction;
+      tractorId = args['tractor_id'] as String?;
+      engineHours = args['engine_hours'] as double?;
+      recordingDuration = args['recording_duration'] as int?;
+    } else {
+      prediction = args as AudioPrediction;
+    }
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -66,7 +81,7 @@ class ResultsScreen extends StatelessWidget {
             const SizedBox(height: 16),
 
             // Action Buttons
-            _buildActionButtons(context, prediction),
+            _buildActionButtons(context, prediction, tractorId, engineHours, recordingDuration),
 
             const SizedBox(height: 32),
           ],
@@ -85,7 +100,7 @@ class ResultsScreen extends StatelessWidget {
         gradient: LinearGradient(
           colors: [
             color,
-            color.withOpacity(0.7),
+            color.withValues(alpha: 0.7),
           ],
         ),
       ),
@@ -506,43 +521,109 @@ class ResultsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildActionButtons(BuildContext context, AudioPrediction prediction) {
+  Widget _buildActionButtons(BuildContext context, AudioPrediction prediction, 
+      String? tractorId, double? engineHours, int? recordingDuration) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
       child: Column(
         children: [
+          // Show recording info if available
+          if (recordingDuration != null)
+            Container(
+              margin: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.info.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.timer, color: AppColors.info, size: 20),
+                  const SizedBox(width: 8),
+                  Text('Recording: ${recordingDuration}s at ${engineHours?.toStringAsFixed(1) ?? 'N/A'}h',
+                    style: TextStyle(color: AppColors.info, fontWeight: FontWeight.w500)),
+                ],
+              ),
+            ),
+          
+          // Test Again Button
           SizedBox(
             width: double.infinity,
             height: 56,
             child: ElevatedButton.icon(
               onPressed: () {
-                Navigator.pushNamedAndRemoveUntil(
-                  context,
-                  '/audio-test',
-                  (route) => route.settings.name == '/dashboard',
-                );
+                if (tractorId != null && engineHours != null) {
+                  Navigator.pushReplacementNamed(
+                    context,
+                    '/recording',
+                    arguments: {
+                      'tractor_id': tractorId,
+                      'engine_hours': engineHours,
+                    },
+                  );
+                } else {
+                  Navigator.pop(context);
+                }
               },
               icon: const Icon(Icons.mic),
-              label: const Text('TEST AGAIN'),
+              label: const Text('RECORD AGAIN'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
               ),
             ),
           ),
+          
           const SizedBox(height: 12),
+          
+          // View Baseline Button (if tractor info available)
+          if (tractorId != null)
+            SizedBox(
+              width: double.infinity,
+              height: 56,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.pushNamed(
+                    context,
+                    '/baseline-status',
+                    arguments: {
+                      'tractorId': tractorId,
+                      'tractorHours': engineHours,
+                    },
+                  );
+                },
+                icon: const Icon(Icons.graphic_eq),
+                label: const Text('VIEW BASELINE'),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: AppColors.info),
+                ),
+              ),
+            ),
+          
+          if (tractorId != null) const SizedBox(height: 12),
+          
+          // Back to Tractor Details
           SizedBox(
             width: double.infinity,
             height: 56,
             child: OutlinedButton.icon(
               onPressed: () {
-                Navigator.pushNamedAndRemoveUntil(
-                  context,
-                  '/dashboard',
-                  (route) => false,
-                );
+                if (tractorId != null) {
+                  Navigator.pushNamedAndRemoveUntil(
+                    context,
+                    '/tractor-detail',
+                    (route) => route.settings.name == '/dashboard',
+                    arguments: tractorId,
+                  );
+                } else {
+                  Navigator.pushNamedAndRemoveUntil(
+                    context,
+                    '/dashboard',
+                    (route) => false,
+                  );
+                }
               },
-              icon: const Icon(Icons.home),
-              label: const Text('BACK TO HOME'),
+              icon: const Icon(Icons.arrow_back),
+              label: Text(tractorId != null ? 'BACK TO TRACTOR' : 'BACK TO HOME'),
               style: OutlinedButton.styleFrom(
                 side: const BorderSide(color: AppColors.primary),
               ),

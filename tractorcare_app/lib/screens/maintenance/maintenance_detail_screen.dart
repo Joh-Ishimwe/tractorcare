@@ -6,7 +6,7 @@ import '../../services/api_service.dart';
 import '../../config/colors.dart';
 
 class MaintenanceDetailScreen extends StatefulWidget {
-  const MaintenanceDetailScreen({Key? key}) : super(key: key);
+  const MaintenanceDetailScreen({super.key});
 
   @override
   State<MaintenanceDetailScreen> createState() => _MaintenanceDetailScreenState();

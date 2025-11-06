@@ -264,7 +264,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 
                 // Role Dropdown Field
                 DropdownButtonFormField<String>(
-                  value: _selectedRole,
+                  initialValue: _selectedRole,
                   decoration: InputDecoration(
                     hintText: 'I am a',
                     hintStyle: const TextStyle(fontSize: 12),

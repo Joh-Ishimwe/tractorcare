@@ -8,7 +8,7 @@ import '../../config/colors.dart';
 class UsageHistoryScreen extends StatefulWidget {
   final String tractorId;
 
-  const UsageHistoryScreen({Key? key, required this.tractorId}) : super(key: key);
+  const UsageHistoryScreen({super.key, required this.tractorId});
 
   @override
   State<UsageHistoryScreen> createState() => _UsageHistoryScreenState();
