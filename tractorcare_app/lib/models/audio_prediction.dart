@@ -201,13 +201,28 @@ class AudioPrediction {
 
   // Get formatted anomaly score
   String get formattedAnomalyScore {
-    return anomalyScore.toStringAsFixed(2);
+    return '${(anomalyScore * 100).toStringAsFixed(1)}%';
   }
 
   // Get formatted baseline deviation
   String get formattedBaselineDeviation {
     if (baselineDeviation == null) return 'N/A';
-    return '${baselineDeviation!.toStringAsFixed(1)}σ';
+    
+    // Convert complex deviation to user-friendly scale with actual number
+    final deviation = baselineDeviation!.abs(); // Use absolute value
+    final deviationStr = deviation.toStringAsFixed(2);
+    
+    if (deviation < 0.5) {
+      return 'Very Similar ($deviationStr)'; // Within normal range
+    } else if (deviation < 1.0) {
+      return 'Slightly Different ($deviationStr)'; // Minor deviation
+    } else if (deviation < 2.0) {
+      return 'Moderately Different ($deviationStr)'; // Noticeable deviation
+    } else if (deviation < 3.0) {
+      return 'Very Different ($deviationStr)'; // Significant deviation  
+    } else {
+      return 'Extremely Different ($deviationStr)'; // Major deviation
+    }
   }
 
   // Get formatted time

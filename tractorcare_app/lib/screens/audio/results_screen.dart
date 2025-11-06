@@ -336,6 +336,7 @@ class ResultsScreen extends StatelessWidget {
             const SizedBox(height: 16),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 const Text(
                   'Deviation',
@@ -344,12 +345,17 @@ class ResultsScreen extends StatelessWidget {
                     color: AppColors.textSecondary,
                   ),
                 ),
-                Text(
-                  prediction.formattedBaselineDeviation,
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.textPrimary,
+                Expanded(
+                  child: Text(
+                    prediction.formattedBaselineDeviation,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textPrimary,
+                    ),
+                    textAlign: TextAlign.right,
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 2,
                   ),
                 ),
               ],
