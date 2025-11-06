@@ -1,7 +1,8 @@
 ﻿import 'dart:convert';
-import 'dart:io';
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+// Only import dart:io on non-web platforms  
+import 'dart:io' if (dart.library.html) 'dart:html';
 import '../config/app_config.dart';
 import '../models/tractor.dart';
 import '../models/tractor_summary.dart';
@@ -228,7 +229,9 @@ class ApiService {
   }
 
   Future<AudioPrediction> predictAudio({
-    required File audioFile,
+    dynamic audioFile,  // File on mobile, not used on web
+    Uint8List? audioBytes,
+    String? fileName,
     required String tractorId,
     required double engineHours,
   }) async {
@@ -247,11 +250,23 @@ class ApiService {
       // Add authorization header using AppConfig
       request.headers.addAll(_getMultipartHeaders());
 
-      // Add the audio file
-      request.files.add(await http.MultipartFile.fromPath(
-        'file',
-        audioFile.path,
-      ));
+      // Add the audio file - handle both mobile and web
+      if (audioFile != null && !kIsWeb) {
+        // Mobile/Desktop - use file path
+        request.files.add(await http.MultipartFile.fromPath(
+          'file',
+          audioFile.path,
+        ));
+      } else if (audioBytes != null && fileName != null) {
+        // Web - use bytes
+        request.files.add(http.MultipartFile.fromBytes(
+          'file',
+          audioBytes,
+          filename: fileName,
+        ));
+      } else {
+        throw Exception('Either audioFile or audioBytes must be provided');
+      }
 
       // Send request
       final streamedResponse = await request.send();
@@ -407,14 +422,12 @@ class ApiService {
   }
 
   Future<List<AudioPrediction>> getPredictions(String tractorId) async {
-    final predictionsUrl = AppConfig.getApiUrl('${AppConfig.audioEndpoint}/predictions');
+    final predictionsUrl = AppConfig.getApiUrl('${AppConfig.audioEndpoint}/$tractorId/predictions');
     AppConfig.log('🎵 Fetching predictions for tractor: $tractorId');
     
     try {
       final response = await http.get(
-        Uri.parse(predictionsUrl).replace(queryParameters: {
-          'tractor_id': tractorId,
-        }),
+        Uri.parse(predictionsUrl),
         headers: _getHeaders(),
       ).timeout(Duration(seconds: AppConfig.apiTimeout));
       
@@ -431,12 +444,16 @@ class ApiService {
   }
 
   Future<AudioPrediction> uploadAudio({
-    required File audioFile,
+    dynamic audioFile,  // File on mobile, not used on web
+    Uint8List? audioBytes,
+    String? fileName,
     required String tractorId,
     required double engineHours,
   }) async {
     return predictAudio(
       audioFile: audioFile,
+      audioBytes: audioBytes,
+      fileName: fileName,
       tractorId: tractorId,
       engineHours: engineHours,
     );
@@ -648,7 +665,7 @@ class ApiService {
 
   Future<Map<String, dynamic>> addBaselineSample({
     required String tractorId,
-    File? audioFile,
+    dynamic audioFile,  // File on mobile, not used on web
     Uint8List? audioBytes,
     String? fileName,
   }) async {
@@ -665,7 +682,7 @@ class ApiService {
       request.headers.addAll(_getMultipartHeaders());
 
       // Add the audio file - handle both mobile and web
-      if (audioFile != null) {
+      if (audioFile != null && !kIsWeb) {
         // Mobile/Desktop - use file path
         request.files.add(await http.MultipartFile.fromPath(
           'file',
@@ -697,20 +714,24 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> finalizeBaseline(String baselineId, [Map<String, dynamic>? additionalData]) async {
-    AppConfig.log('✅ Finalizing baseline: $baselineId with data: $additionalData');
+  Future<Map<String, dynamic>> finalizeBaseline({
+    required String tractorId,
+    double? tractorHours,
+    String? loadCondition,
+    String? notes,
+  }) async {
+    AppConfig.log('✅ Finalizing baseline for tractor: $tractorId');
     try {
-      final url = AppConfig.getApiUrl('${AppConfig.baselineEndpoint}/$baselineId/finalize');
+      final queryParams = <String, String>{};
+      if (tractorHours != null) queryParams['tractor_hours'] = tractorHours.toString();
+      if (loadCondition != null) queryParams['load_condition'] = loadCondition;
+      if (notes != null) queryParams['notes'] = notes;
       
-      final body = <String, dynamic>{};
-      if (additionalData != null) {
-        body.addAll(additionalData);
-      }
+      final url = AppConfig.getApiUrl('${AppConfig.baselineEndpoint}/$tractorId/finalize');
       
       final response = await http.post(
-        Uri.parse(url),
+        Uri.parse(url).replace(queryParameters: queryParams),
         headers: _getHeaders(),
-        body: json.encode(body),
       );
 
       if (response.statusCode == 200) {
@@ -724,7 +745,7 @@ class ApiService {
     }
   }
 
-  Future<List<Map<String, dynamic>>> getBaselineHistory(String tractorId) async {
+  Future<Map<String, dynamic>> getBaselineHistory(String tractorId) async {
     AppConfig.log('📊 Getting baseline history for tractor: $tractorId');
     try {
       final url = AppConfig.getApiUrl('${AppConfig.baselineEndpoint}/$tractorId/history');
@@ -734,16 +755,19 @@ class ApiService {
       );
 
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (data['baselines'] != null) {
-          return List<Map<String, dynamic>>.from(data['baselines']);
-        }
-        return [];
+        return json.decode(response.body);
+      } else if (response.statusCode == 404) {
+        // No baseline history found
+        return {
+          'tractor_id': tractorId,
+          'total_baselines': 0,
+          'history': []
+        };
       } else {
         throw Exception('Failed to get baseline history: ${response.body}');
       }
     } catch (e) {
-      print('Baseline history error: $e');
+      AppConfig.logError('❌ Baseline history error', e);
       rethrow;
     }
   }

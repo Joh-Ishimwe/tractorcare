@@ -1,10 +1,8 @@
-// lib/providers/audio_provider.dart
-
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../models/audio_prediction.dart';
 import '../services/api_service.dart';
 import '../services/audio_service.dart';
+import 'dart:io';                     // <-- normal import (ignored on web)
 
 class AudioProvider with ChangeNotifier {
   final ApiService _api = ApiService();
@@ -24,10 +22,11 @@ class AudioProvider with ChangeNotifier {
   int get recordingDuration => _recordingDuration;
   String? get error => _error;
 
+  // -----------------------------------------------------------------
   // Fetch predictions
+  // -----------------------------------------------------------------
   Future<void> fetchPredictions(String? tractorId, {int limit = 10}) async {
     _setLoading(true);
-
     try {
       _predictions = await _api.getPredictions(tractorId ?? 'default');
       _setLoading(false);
@@ -37,7 +36,9 @@ class AudioProvider with ChangeNotifier {
     }
   }
 
+  // -----------------------------------------------------------------
   // Upload audio file (path-based, for mobile/desktop)
+  // -----------------------------------------------------------------
   Future<AudioPrediction?> uploadAudio(
     String filePath,
     String tractorId,
@@ -45,75 +46,44 @@ class AudioProvider with ChangeNotifier {
   ) async {
     _setLoading(true);
     _clearError();
-
     try {
-      // Check if we're on web - if so, get bytes first
-      if (kIsWeb || filePath.startsWith('blob:') || filePath.startsWith('http')) {
-        // Web platform or blob URL - use bytes
+      // ------------------- WEB -------------------
+      if (kIsWeb ||
+          filePath.startsWith('blob:') ||
+          filePath.startsWith('http')) {
         final bytes = await getRecordingBytes(filePath);
         if (bytes == null) {
           throw Exception('Failed to get audio bytes');
         }
-        
-        // Extract filename from path
+
         final filename = filePath.split('/').last;
-        
         final prediction = await _api.uploadAudioBytes(
           bytes: bytes,
           filename: filename.isEmpty ? 'recording.wav' : filename,
           tractorId: tractorId,
           engineHours: engineHours,
         );
-
-        _currentPrediction = prediction;
-        _predictions.insert(0, prediction);
-        _setLoading(false);
-        return prediction;
-      } else {
-        // Mobile/Desktop - use file path
-        final file = File(filePath);
-        
-        final prediction = await _api.uploadAudio(
-          audioFile: file,
-          tractorId: tractorId,
-          engineHours: engineHours,
-        );
-
         _currentPrediction = prediction;
         _predictions.insert(0, prediction);
         _setLoading(false);
         return prediction;
       }
-    } catch (e) {
-      _setError(e.toString());
-      _setLoading(false);
-      return null;
-    }
-  }
 
-  // Upload audio file (bytes-based, for web)
-  Future<AudioPrediction?> uploadAudioBytes(
-    List<int> bytes,
-    String filename,
-    String tractorId,
-    double engineHours,
-  ) async {
-    _setLoading(true);
-    _clearError();
+      // ------------------- MOBILE / DESKTOP -------------------
+      File? file;
+      if (!kIsWeb) {
+        file = File(filePath);               // <-- safe: dart:io File
+      }
 
-    try {
-      final prediction = await _api.uploadAudioBytes(
-        bytes: bytes,
-        filename: filename,
+      final prediction = await _api.uploadAudio(
+        audioFile: file,
+        audioBytes: null,
+        fileName: null,
         tractorId: tractorId,
         engineHours: engineHours,
       );
-
       _currentPrediction = prediction;
-      
-      // Add to predictions list
       _predictions.insert(0, prediction);
-      
       _setLoading(false);
       return prediction;
     } catch (e) {
@@ -123,12 +93,41 @@ class AudioProvider with ChangeNotifier {
     }
   }
 
-  // Start recording
+  // -----------------------------------------------------------------
+  // Upload audio file (bytes-based, for web)
+  // -----------------------------------------------------------------
+  Future<AudioPrediction?> uploadAudioBytes(
+    List<int> bytes,
+    String filename,
+    String tractorId,
+    double engineHours,
+  ) async {
+    _setLoading(true);
+    _clearError();
+    try {
+      final prediction = await _api.uploadAudioBytes(
+        bytes: bytes,
+        filename: filename,
+        tractorId: tractorId,
+        engineHours: engineHours,
+      );
+      _currentPrediction = prediction;
+      _predictions.insert(0, prediction);
+      _setLoading(false);
+      return prediction;
+    } catch (e) {
+      _setError(e.toString());
+      _setLoading(false);
+      return null;
+    }
+  }
+
+  // -----------------------------------------------------------------
+  // Recording controls
+  // -----------------------------------------------------------------
   Future<bool> startRecording() async {
     _clearError();
-
     try {
-      // Request permission if needed
       if (!await _audioService.hasPermission()) {
         final granted = await _audioService.requestPermission();
         if (!granted) {
@@ -136,15 +135,12 @@ class AudioProvider with ChangeNotifier {
           return false;
         }
       }
-
       final success = await _audioService.startRecording();
-      
       if (success) {
         _isRecording = true;
         _recordingDuration = 0;
         notifyListeners();
       }
-      
       return success;
     } catch (e) {
       _setError(e.toString());
@@ -152,7 +148,6 @@ class AudioProvider with ChangeNotifier {
     }
   }
 
-  // Stop recording
   Future<String?> stopRecording() async {
     try {
       final path = await _audioService.stopRecording();
@@ -168,12 +163,10 @@ class AudioProvider with ChangeNotifier {
     }
   }
 
-  // Get recording bytes (for web platform)
   Future<List<int>?> getRecordingBytes(String pathOrBlobUrl) async {
     return await _audioService.getRecordingBytes(pathOrBlobUrl);
   }
 
-  // Cancel recording
   Future<void> cancelRecording() async {
     try {
       await _audioService.cancelRecording();
@@ -185,16 +178,16 @@ class AudioProvider with ChangeNotifier {
     }
   }
 
-  // Update recording duration
   void updateRecordingDuration(int seconds) {
     _recordingDuration = seconds;
     notifyListeners();
   }
 
-  // Get prediction by ID
+  // -----------------------------------------------------------------
+  // Single prediction
+  // -----------------------------------------------------------------
   Future<AudioPrediction?> getPrediction(String predictionId) async {
     _setLoading(true);
-
     try {
       final prediction = await _api.getPrediction(predictionId);
       _currentPrediction = prediction;
@@ -207,13 +200,14 @@ class AudioProvider with ChangeNotifier {
     }
   }
 
-  // Clear current prediction
   void clearCurrentPrediction() {
     _currentPrediction = null;
     notifyListeners();
   }
 
-  // Helper methods
+  // -----------------------------------------------------------------
+  // Helpers
+  // -----------------------------------------------------------------
   void _setLoading(bool value) {
     _isLoading = value;
     notifyListeners();
