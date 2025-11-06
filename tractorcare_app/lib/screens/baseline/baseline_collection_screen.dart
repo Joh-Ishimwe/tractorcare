@@ -185,6 +185,11 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
   // Recording Logic
   // -----------------------------------------------------------------
   void _startRecording() {
+    // If starting recording, ensure we're in collection mode
+    if (_collectionStatus == 'not_started') {
+      setState(() => _collectionStatus = 'active');
+    }
+    
     final audioProvider = Provider.of<AudioProvider>(context, listen: false);
     setState(() {
       _isRecording = true;
@@ -243,7 +248,12 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
         setState(() {
           _collectedSamples = result['collected_samples'] ?? _collectedSamples;
           _readyToFinalize = result['ready_to_finalize'] == true;
-          if (_readyToFinalize) _collectionStatus = 'ready_to_finalize';
+          if (_readyToFinalize) {
+            _collectionStatus = 'ready_to_finalize';
+          } else {
+            // Keep the collection active since we're still collecting samples
+            _collectionStatus = 'active';
+          }
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -251,7 +261,7 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
             backgroundColor: AppColors.success,
           ),
         );
-        _loadBaselineStatus();
+        // Load baseline history but don't reload status since we just updated it locally
         _loadBaselineHistory();
       }
     } catch (e) {
@@ -283,7 +293,12 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
         setState(() {
           _collectedSamples = result['collected_samples'] ?? _collectedSamples;
           _readyToFinalize = result['ready_to_finalize'] == true;
-          if (_readyToFinalize) _collectionStatus = 'ready_to_finalize';
+          if (_readyToFinalize) {
+            _collectionStatus = 'ready_to_finalize';
+          } else {
+            // Keep the collection active since we're still collecting samples
+            _collectionStatus = 'active';
+          }
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -291,7 +306,7 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
             backgroundColor: AppColors.success,
           ),
         );
-        _loadBaselineStatus();
+        // Load baseline history but don't reload status since we just updated it locally
         _loadBaselineHistory();
       }
     } catch (e) {
@@ -310,6 +325,11 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
   }
 
   Future<void> _uploadAudioFile() async {
+    // If uploading a file, ensure we're in collection mode
+    if (_collectionStatus == 'not_started') {
+      setState(() => _collectionStatus = 'active');
+    }
+    
     final result = await FilePicker.platform.pickFiles(
       type: FileType.audio,
       allowMultiple: false,
@@ -967,6 +987,11 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
   }
 
   Widget _buildHistorySection() {
+    // Hide baseline history during active sample collection to reduce UI clutter
+    if (_collectionStatus == 'active') {
+      return const SizedBox.shrink();
+    }
+    
     final history = _baselineHistory?['history'] as List<dynamic>? ?? [];
 
     return Column(
