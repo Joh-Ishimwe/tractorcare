@@ -26,6 +26,7 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
   int _collectedSamples = 0;
   String _collectionStatus = 'not_started'; // not_started, establishing, ready_to_finalize, active
   bool _readyToFinalize = false;
+  bool _hasExistingBaseline = false;
 
   // Recording state
   bool _isRecording = false;
@@ -96,10 +97,23 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
       final status = await _apiService.getBaselineStatus(_tractorId!);
       if (mounted) {
         setState(() {
-          if (status['has_baseline'] == true && status['status'] == 'active') {
-            _collectionStatus = 'active';
-          } else {
-            _collectionStatus = 'not_started';
+          // Store the actual status from the API for display purposes
+          final actualStatus = status['status'] as String? ?? 'not_started';
+          final hasBaseline = status['has_baseline'] == true || 
+                              status['active_baseline'] != null ||
+                              actualStatus == 'completed';
+          
+          // Always start with UI hidden until user clicks Start/Update
+          _collectionStatus = 'not_started';
+          
+          // Set the baseline existence flag for proper button text and status message
+          _hasExistingBaseline = hasBaseline;
+          
+          // Update other status info for display
+          if (status['active_baseline'] != null) {
+            final baseline = status['active_baseline'];
+            _collectedSamples = baseline['num_samples'] ?? 0;
+            _targetSamples = baseline['target_samples'] ?? 5;
           }
         });
       }
@@ -386,6 +400,105 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
   // Build Methods (Now Fully Implemented)
   // -----------------------------------------------------------------
   Widget _buildProgressHeader() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Tractor Icon
+          Container(
+            width: 60,
+            height: 60,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              Icons.agriculture,
+              size: 32,
+              color: AppColors.primary,
+            ),
+          ),
+          const SizedBox(width: 16),
+          
+          // Tractor Information
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Tractor ${_tractorId ?? 'Unknown'}',
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Engine Hours: ${_tractorHours?.toStringAsFixed(1) ?? 'N/A'}',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.circle,
+                      size: 8,
+                      color: _getStatusColor(),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      _getStatusTitle(),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _getStatusColor(),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _getStatusTitle() {
+    switch (_collectionStatus) {
+      case 'not_started':
+        return _hasExistingBaseline ? 'Baseline Ready' : 'No Baseline';
+      case 'active':
+        return 'Collecting Samples';
+      case 'ready_to_finalize':
+        return 'Ready to Finalize';
+      case 'completed':
+        return 'Baseline Active';
+      default:
+        return 'Loading...';
+    }
+  }
+
+  Widget _buildSampleProgress() {
+    if (_collectionStatus == 'not_started') {
+      return const SizedBox.shrink();
+    }
+
     final progressPercent = _targetSamples > 0 ? (_collectedSamples / _targetSamples) : 0.0;
 
     return Container(
@@ -454,13 +567,13 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
               width: double.infinity,
               child: ElevatedButton.icon(
                 onPressed: _isLoading ? null : _startBaselineCollection,
-                icon: const Icon(Icons.play_arrow, size: 24),
-                label: const Text(
-                  'Start Baseline Creation',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                icon: Icon(_hasExistingBaseline ? Icons.refresh : Icons.play_arrow, size: 24),
+                label: Text(
+                  _hasExistingBaseline ? 'Update Baseline' : 'Start Baseline Creation',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                 ),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
+                  backgroundColor: _hasExistingBaseline ? AppColors.warning : AppColors.primary,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
@@ -568,7 +681,7 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
   Color _getStatusColor() {
     switch (_collectionStatus) {
       case 'not_started':
-        return AppColors.textSecondary;
+        return _hasExistingBaseline ? AppColors.success : AppColors.textSecondary;
       case 'active':
         return AppColors.primary;
       case 'ready_to_finalize':
@@ -583,7 +696,7 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
   IconData _getStatusIcon() {
     switch (_collectionStatus) {
       case 'not_started':
-        return Icons.info_outline;
+        return _hasExistingBaseline ? Icons.check_circle : Icons.info_outline;
       case 'active':
         return Icons.mic;
       case 'ready_to_finalize':
@@ -598,9 +711,11 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
   String _getStatusMessage() {
     switch (_collectionStatus) {
       case 'not_started':
-        return 'No baseline found. Start collecting samples to create your first baseline.';
+        return _hasExistingBaseline 
+            ? 'Baseline exists. Click "Update Baseline" to add more samples or create a new baseline.'
+            : 'No baseline found. Start collecting samples to create your first baseline.';
       case 'active':
-        return 'Baseline collection in progress. Collect ${5 - _collectedSamples} more samples.';
+        return 'Baseline collection in progress. Collect ${_targetSamples - _collectedSamples} more samples.';
       case 'ready_to_finalize':
         return 'Ready to finalize! You have enough samples to create the baseline.';
       case 'completed':
@@ -611,42 +726,9 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
   }
 
   Widget _buildRecordingSection() {
+    // Hide recording controls until the user starts/updates baseline collection
     if (_collectionStatus == 'not_started') {
-      return Container(
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          children: [
-            Icon(
-              Icons.mic_off,
-              size: 64,
-              color: AppColors.textSecondary.withValues(alpha: 0.5),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'No Active Baseline Collection',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textSecondary,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Start a baseline collection above to begin recording samples',
-              style: TextStyle(
-                fontSize: 14,
-                color: AppColors.textSecondary.withValues(alpha: 0.7),
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      );
+      return const SizedBox.shrink();
     }
 
     return Container(
@@ -939,7 +1021,27 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
                   style: TextStyle(fontWeight: FontWeight.w600, color: isActive ? AppColors.success : AppColors.textSecondary),
                 ),
               ),
-              Text('${baseline['num_samples']} samples', style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+              Column(
+                children: [
+                  Text('${baseline['num_samples']} samples', style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                  const SizedBox(height: 4),
+                  GestureDetector(
+                    onTap: () => _showDeleteBaselineDialog(baseline),
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: AppColors.error.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Icon(
+                        Icons.delete_outline,
+                        size: 16,
+                        color: AppColors.error,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
           if (createdAt != null) ...[
@@ -955,6 +1057,152 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _showDeleteBaselineDialog(Map<String, dynamic> baseline) async {
+    // Handle different possible ID field names and ensure we have a valid ID
+    final baselineId = baseline['baseline_id'] ?? 
+                      baseline['_id'] ?? 
+                      baseline['id'] ?? 
+                      baseline['tractor_id']; // fallback to tractor_id for tractor-level delete
+    
+    if (baselineId == null || baselineId.toString().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cannot delete: Invalid baseline ID'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
+    
+    final isActive = baseline['is_active'] == true;
+    final createdAt = DateTime.tryParse(baseline['created_at'] ?? '');
+    final dateStr = createdAt != null ? DateFormat('MMM dd, yyyy').format(createdAt) : 'Unknown date';
+
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.warning, color: AppColors.error),
+              const SizedBox(width: 8),
+              const Text('Delete Baseline'),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: ListBody(
+              children: <Widget>[
+                Text(
+                  isActive 
+                    ? 'Are you sure you want to delete the active baseline?'
+                    : 'Are you sure you want to delete this archived baseline?',
+                  style: const TextStyle(fontSize: 16),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceVariant,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Baseline Details:', style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+                      const SizedBox(height: 4),
+                      Text('• Created: $dateStr'),
+                      Text('• Samples: ${baseline['num_samples']} samples'),
+                      Text('• Engine Hours: ${baseline['tractor_hours']?.toString() ?? 'N/A'}'),
+                      if (isActive) Text('• Status: Active Baseline', style: TextStyle(color: AppColors.success, fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  isActive 
+                    ? '⚠️ Warning: Deleting the active baseline will disable baseline comparisons until a new one is created.'
+                    : 'This action cannot be undone.',
+                  style: TextStyle(
+                    color: AppColors.error,
+                    fontWeight: FontWeight.w500,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Cancel'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.error,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Delete'),
+              onPressed: () async {
+                Navigator.of(context).pop();
+                await _deleteBaseline(baselineId.toString());
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _deleteBaseline(String baselineId) async {
+    if (_tractorId == null || baselineId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cannot delete: Missing tractor ID or baseline ID'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
+    
+    setState(() => _isLoading = true);
+    
+    try {
+      // Call API to delete baseline
+      await _apiService.deleteBaseline(
+        tractorId: _tractorId!,
+        baselineId: baselineId,
+      );
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Baseline deleted successfully'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+        
+        // Reload history and status
+        await _loadBaselineHistory();
+        await _loadBaselineStatus();
+      }
+    } catch (e) {
+      AppConfig.logError('Failed to delete baseline', e);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to delete baseline: ${e.toString()}'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   // -----------------------------------------------------------------
@@ -979,8 +1227,12 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
                   _buildProgressHeader(),
                   const SizedBox(height: 24),
                   _buildActionButtons(),
-                  const SizedBox(height: 24),
-                  _buildRecordingSection(),
+                  if (_collectionStatus != 'not_started') ...[
+                    const SizedBox(height: 24),
+                    _buildSampleProgress(),
+                    const SizedBox(height: 24),
+                    _buildRecordingSection(),
+                  ],
                   const SizedBox(height: 24),
                   if (_readyToFinalize) _buildFinalizeSection(),
                   if (_readyToFinalize) const SizedBox(height: 24),

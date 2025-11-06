@@ -772,6 +772,45 @@ class ApiService {
     }
   }
 
+  Future<Map<String, dynamic>> deleteBaseline({
+    required String tractorId,
+    required String baselineId,
+  }) async {
+    AppConfig.log('🗑️ Deleting baseline $baselineId for tractor: $tractorId');
+    try {
+      // Try deleting specific baseline first (if backend supports it)
+      var url = AppConfig.getApiUrl('${AppConfig.baselineEndpoint}/$tractorId/$baselineId');
+      var response = await http.delete(
+        Uri.parse(url),
+        headers: _getHeaders(),
+      );
+
+      // If specific baseline delete is not supported (404), fall back to tractor-level delete
+      if (response.statusCode == 404) {
+        AppConfig.log('🔄 Specific baseline delete not supported, using tractor-level delete');
+        url = AppConfig.getApiUrl('${AppConfig.baselineEndpoint}/$tractorId');
+        response = await http.delete(
+          Uri.parse(url),
+          headers: _getHeaders(),
+        );
+      }
+
+      if (response.statusCode == 200) {
+        AppConfig.logSuccess('✅ Baseline deleted successfully');
+        return json.decode(response.body);
+      } else if (response.statusCode == 404) {
+        throw Exception('Baseline not found');
+      } else if (response.statusCode == 403) {
+        throw Exception('Cannot delete active baseline that is being used for analysis');
+      } else {
+        throw Exception('Failed to delete baseline: ${response.body}');
+      }
+    } catch (e) {
+      AppConfig.logError('❌ Delete baseline error', e);
+      rethrow;
+    }
+  }
+
   Future<Map<String, dynamic>> getBaselineStatus(String tractorId) async {
     AppConfig.log('📊 Getting baseline status for tractor: $tractorId');
     try {
