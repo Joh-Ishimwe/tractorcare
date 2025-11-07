@@ -106,86 +106,153 @@ class _CalendarScreenState extends State<CalendarScreen> {
   void _showScheduleBottomSheet() {
     final provider = Provider.of<TractorProvider>(context, listen: false);
     final tractors = provider.tractors;
+    
+    String? selectedTractorId;
+    final notesController = TextEditingController();
+    bool isSubmitting = false;
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.white,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.6,
-        maxChildSize: 0.95,
-        minChildSize: 0.4,
-        builder: (_, controller) => Container(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
-            left: 16,
-            right: 16,
-            top: 16,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(width: 40, height: 4, color: Colors.grey[300]),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Schedule Maintenance',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                decoration: const InputDecoration(
-                  labelText: 'Tractor',
-                  border: OutlineInputBorder(),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => DraggableScrollableSheet(
+          initialChildSize: 0.6,
+          maxChildSize: 0.95,
+          minChildSize: 0.4,
+          builder: (_, controller) => Container(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom,
+              left: 16,
+              right: 16,
+              top: 16,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(width: 40, height: 4, color: Colors.grey[300]),
                 ),
-                items: tractors.map((t) {
-                  return DropdownMenuItem(value: t.tractorId, child: Text(t.tractorId));
-                }).toList(),
-                onChanged: (value) {},
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                decoration: const InputDecoration(
-                  labelText: 'Date',
-                  border: OutlineInputBorder(),
-                  suffixIcon: Icon(Icons.calendar_today),
+                const SizedBox(height: 16),
+                const Text(
+                  'Schedule Maintenance',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                 ),
-                readOnly: true,
-                controller: TextEditingController(
-                  text: _selectedDay != null
-                      ? '${_selectedDay!.day}/${_selectedDay!.month}/${_selectedDay!.year}'
-                      : '',
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                decoration: const InputDecoration(
-                  labelText: 'Notes (e.g., Oil Change)',
-                  border: OutlineInputBorder(),
-                ),
-                maxLines: 2,
-              ),
-              const Spacer(),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    // TODO: Save to API
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Maintenance scheduled!')),
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  decoration: const InputDecoration(
+                    labelText: 'Tractor',
+                    border: OutlineInputBorder(),
                   ),
-                  child: const Text('Schedule', style: TextStyle(fontSize: 16)),
+                  items: tractors.map((t) {
+                    return DropdownMenuItem(value: t.tractorId, child: Text(t.tractorId));
+                  }).toList(),
+                  onChanged: (value) {
+                    selectedTractorId = value;
+                  },
                 ),
-              ),
-              const SizedBox(height: 16),
-            ],
+                const SizedBox(height: 12),
+                TextFormField(
+                  decoration: const InputDecoration(
+                    labelText: 'Date',
+                    border: OutlineInputBorder(),
+                    suffixIcon: Icon(Icons.calendar_today),
+                  ),
+                  readOnly: true,
+                  controller: TextEditingController(
+                    text: _selectedDay != null
+                        ? '${_selectedDay!.day}/${_selectedDay!.month}/${_selectedDay!.year}'
+                        : '',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: notesController,
+                  decoration: const InputDecoration(
+                    labelText: 'Task Name (e.g., Oil Change)',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 2,
+                ),
+                const Spacer(),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: isSubmitting ? null : () async {
+                      if (selectedTractorId == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Please select a tractor')),
+                        );
+                        return;
+                      }
+                      
+                      if (notesController.text.trim().isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Please enter a task name')),
+                        );
+                        return;
+                      }
+                      
+                      setModalState(() => isSubmitting = true);
+                      
+                      try {
+                        final apiService = ApiService();
+                        
+                        // Create maintenance record
+                        await apiService.createMaintenance({
+                          'tractor_id': selectedTractorId!,
+                          'task_name': notesController.text.trim(),
+                          'description': 'Scheduled maintenance task',
+                          'completion_date': _selectedDay?.toIso8601String() ?? DateTime.now().toIso8601String(),
+                          'completion_hours': 1,
+                          'actual_time_minutes': 60,
+                          'actual_cost_rwf': 0,
+                          'service_location': 'Field',
+                          'notes': 'Scheduled from calendar',
+                        });
+                        
+                        Navigator.pop(context);
+                        
+                        // Refresh calendar data
+                        await _loadEvents();
+                        
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Maintenance scheduled successfully!'),
+                            backgroundColor: AppColors.success,
+                          ),
+                        );
+                      } catch (e) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Failed to schedule maintenance: ${e.toString()}'),
+                            backgroundColor: AppColors.error,
+                          ),
+                        );
+                      } finally {
+                        setModalState(() => isSubmitting = false);
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
+                    child: isSubmitting
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          )
+                        : const Text('Schedule', style: TextStyle(fontSize: 16)),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+            ),
           ),
         ),
       ),

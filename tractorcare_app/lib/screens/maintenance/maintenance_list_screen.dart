@@ -47,7 +47,7 @@ class _MaintenanceListScreenState extends State<MaintenanceListScreen>
     
     if (tractorProvider.tractors.isNotEmpty && _selectedTractorId == null && mounted) {
       setState(() {
-        _selectedTractorId = tractorProvider.tractors.first.id;
+        _selectedTractorId = tractorProvider.tractors.first.tractorId;
       });
       await _loadMaintenance();
     }
@@ -209,7 +209,7 @@ class _MaintenanceListScreenState extends State<MaintenanceListScreen>
                     icon: const Icon(Icons.arrow_drop_down),
                     items: provider.tractors.map((Tractor tractor) {
                       return DropdownMenuItem<String>(
-                        value: tractor.id,
+                        value: tractor.tractorId,
                         child: Row(
                           children: [
                             Text(tractor.statusIcon),
