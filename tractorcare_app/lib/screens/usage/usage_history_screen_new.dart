@@ -1,4 +1,7 @@
-﻿import 'package:flutter/material.dart';
+// lib/screens/usage/usage_history_screen.dart
+
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../services/api_service.dart';
 import '../../config/colors.dart';
 
@@ -14,7 +17,6 @@ class UsageHistoryScreen extends StatefulWidget {
 class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
   final TextEditingController _endHoursController = TextEditingController();
   final TextEditingController _notesController = TextEditingController();
-  final ApiService _apiService = ApiService();
   
   late String tractorId;
   late int currentHours;
@@ -30,16 +32,10 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     
-    final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
-    if (args != null) {
-      tractorId = args['tractor_id'] ?? widget.tractorId;
-      currentHours = args['engine_hours'] ?? 0;
-      model = args['model'] ?? 'Unknown Model';
-    } else {
-      tractorId = widget.tractorId;
-      currentHours = 0;
-      model = 'Unknown Model';
-    }
+    final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
+    tractorId = args['tractor_id'];
+    currentHours = args['engine_hours'];
+    model = args['model'];
     
     _loadUsageData();
   }
@@ -58,8 +54,11 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
         errorMessage = null;
       });
 
-      final historyResponse = await _apiService.getUsageHistory(tractorId);
-      final statsResponse = await _apiService.getUsageStats(tractorId);
+      final apiService = Provider.of<ApiService>(context, listen: false);
+      
+      // Load usage history and stats
+      final historyResponse = await apiService.getUsageHistory(tractorId);
+      final statsResponse = await apiService.getUsageStats(tractorId);
       
       if (mounted) {
         setState(() {
@@ -73,6 +72,74 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
         setState(() {
           errorMessage = 'Failed to load usage data: ${e.toString()}';
           isLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _logDailyUsage() async {
+    final endHoursStr = _endHoursController.text.trim();
+    if (endHoursStr.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter end hours')),
+      );
+      return;
+    }
+
+    final endHours = double.tryParse(endHoursStr);
+    if (endHours == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid number for hours')),
+      );
+      return;
+    }
+
+    if (endHours <= currentHours) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('End hours must be greater than current hours ($currentHours)')),
+      );
+      return;
+    }
+
+    try {
+      setState(() {
+        isSubmitting = true;
+        errorMessage = null;
+      });
+
+      final apiService = Provider.of<ApiService>(context, listen: false);
+      
+      await apiService.logDailyUsage(
+        tractorId,
+        endHours,
+        _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
+      );
+
+      // Clear form and reload data
+      _endHoursController.clear();
+      _notesController.clear();
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Usage logged successfully!'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+
+      // Reload usage data
+      await _loadUsageData();
+
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to log usage: ${e.toString()}'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          isSubmitting = false;
         });
       }
     }
@@ -111,72 +178,6 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
               ),
             ),
     );
-  }
-
-  Future<void> _logDailyUsage() async {
-    final endHoursStr = _endHoursController.text.trim();
-    if (endHoursStr.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter end hours')),
-      );
-      return;
-    }
-
-    final endHours = double.tryParse(endHoursStr);
-    if (endHours == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid number for hours')),
-      );
-      return;
-    }
-
-    if (endHours <= currentHours) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('End hours must be greater than current hours ($currentHours)')),
-      );
-      return;
-    }
-
-    try {
-      setState(() {
-        isSubmitting = true;
-        errorMessage = null;
-      });
-
-      await _apiService.logDailyUsage(
-        tractorId,
-        endHours,
-        _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
-      );
-
-      // Clear form and reload data
-      _endHoursController.clear();
-      _notesController.clear();
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Usage logged successfully!'),
-          backgroundColor: AppColors.success,
-        ),
-      );
-
-      // Reload usage data
-      await _loadUsageData();
-
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to log usage: ${e.toString()}'),
-          backgroundColor: AppColors.error,
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          isSubmitting = false;
-        });
-      }
-    }
   }
 
   Widget _buildCurrentStatusCard() {
@@ -423,13 +424,12 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
     );
   }
 
-  Widget _buildUsageHistoryItem(dynamic usage) {
-    final Map<String, dynamic> usageMap = Map<String, dynamic>.from(usage);
-    final date = DateTime.parse(usageMap['date']);
-    final hoursUsed = usageMap['hours_used']?.toDouble() ?? 0.0;
-    final startHours = usageMap['start_hours']?.toDouble() ?? 0.0;
-    final endHours = usageMap['end_hours']?.toDouble() ?? 0.0;
-    final notes = usageMap['notes'] as String?;
+  Widget _buildUsageHistoryItem(Map<String, dynamic> usage) {
+    final date = DateTime.parse(usage['date']);
+    final hoursUsed = usage['hours_used']?.toDouble() ?? 0.0;
+    final startHours = usage['start_hours']?.toDouble() ?? 0.0;
+    final endHours = usage['end_hours']?.toDouble() ?? 0.0;
+    final notes = usage['notes'] as String?;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),

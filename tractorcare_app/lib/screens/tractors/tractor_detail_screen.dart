@@ -11,7 +11,7 @@ import '../../models/tractor_summary.dart';
 import '../../config/colors.dart';
 import '../../config/app_config.dart';
 import '../../services/api_service.dart';
-import '../usage/usage_history_screen.dart';
+
 
 class TractorDetailScreen extends StatefulWidget {
   const TractorDetailScreen({super.key});
@@ -417,7 +417,26 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
               },
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _buildCompactActionButton(
+              icon: Icons.schedule,
+              label: 'Usage',
+              color: AppColors.primary,
+              onTap: () {
+                Navigator.pushNamed(
+                  context,
+                  '/usage-history',
+                  arguments: {
+                    'tractor_id': tractor.tractorId,
+                    'engine_hours': tractor.engineHours,
+                    'model': tractor.model,
+                  },
+                );
+              },
+            ),
+          ),
+          const SizedBox(width: 8),
           Expanded(
             child: _buildCompactActionButton(
               icon: Icons.build,
@@ -432,7 +451,7 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
               },
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
           Expanded(
             child: _buildCompactActionButton(
               icon: Icons.graphic_eq,
@@ -731,13 +750,15 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                 ),
                 TextButton(
                   onPressed: () {
-                    Navigator.push(
+                    final tractor = Provider.of<TractorProvider>(context, listen: false).selectedTractor;
+                    Navigator.pushNamed(
                       context,
-                      MaterialPageRoute(
-                        builder: (context) => UsageHistoryScreen(
-                          tractorId: _tractorId!,
-                        ),
-                      ),
+                      '/usage-history',
+                      arguments: {
+                        'tractor_id': _tractorId!,
+                        'engine_hours': tractor?.engineHours ?? 0,
+                        'model': tractor?.model ?? 'Unknown Model',
+                      },
                     );
                   },
                   child: const Text('View All'),
