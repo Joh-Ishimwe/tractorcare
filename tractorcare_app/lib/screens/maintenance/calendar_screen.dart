@@ -376,18 +376,23 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'Schedule and track maintenance activities',
-                        style: TextStyle(fontSize: 14, color: Colors.grey),
+                      Expanded(
+                        child: const Text(
+                          'Schedule and track maintenance activities',
+                          style: TextStyle(fontSize: 14, color: Colors.grey),
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
+                      const SizedBox(width: 12),
                       ElevatedButton.icon(
                         onPressed: _showScheduleBottomSheet,
                         icon: const Icon(Icons.add, size: 18),
-                        label: const Text('Schedule Maintenance'),
+                        label: const Text('Schedule'),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.primary,
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         ),
                       ),
                     ],
