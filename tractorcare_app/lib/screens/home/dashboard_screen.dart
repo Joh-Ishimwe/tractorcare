@@ -28,7 +28,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int _currentIndex = 0;
   List<Maintenance> _allMaintenanceTasks = [];
   Map<String, TractorSummary> _tractorSummaries = {};
+  Map<String, List<dynamic>> _usageHistoryData = {};
   bool _isLoadingActivities = false;
+  bool _isLoadingUsageData = false;
 
   @override
   void initState() {
@@ -57,6 +59,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       
       // Load maintenance data for all tractors
       await _loadMaintenanceActivities();
+      
+      // Load usage data for all tractors
+      await _loadUsageData();
     } catch (e) {
       AppConfig.logError('Failed to fetch tractors', e);
     } finally {
@@ -94,6 +99,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
       setState(() {
         _allMaintenanceTasks = allTasks;
         _tractorSummaries = summaries;
+      });
+    }
+  }
+
+  Future<void> _loadUsageData() async {
+    final tractorProvider = Provider.of<TractorProvider>(context, listen: false);
+    final apiService = ApiService();
+    
+    setState(() => _isLoadingUsageData = true);
+    
+    AppConfig.log('Loading usage data for ${tractorProvider.tractors.length} tractors');
+    
+    Map<String, List<dynamic>> usageData = {};
+
+    for (final tractor in tractorProvider.tractors) {
+      try {
+        // Get usage history for last 7 days
+        final history = await apiService.getUsageHistory(tractor.tractorId, days: 7);
+        usageData[tractor.tractorId] = history;
+        
+        AppConfig.log('Loaded usage history for tractor ${tractor.tractorId}: ${history.length} records');
+      } catch (e) {
+        AppConfig.logError('Failed to load usage data for tractor ${tractor.tractorId}', e);
+        // Set empty list for this tractor so chart still shows it
+        usageData[tractor.tractorId] = [];
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _usageHistoryData = usageData;
+        _isLoadingUsageData = false;
       });
     }
   }
@@ -282,12 +319,79 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  // ==================== USAGE DATA PROCESSING ====================
+  Map<String, List<double>> _buildUsageDataForChart(List<String> tractorIds, List<DateTime> last7Days) {
+    Map<String, List<double>> hoursData = {};
+    
+    for (var tractorId in tractorIds) {
+      List<double> dailyHours = [];
+      final usageHistory = _usageHistoryData[tractorId] ?? [];
+      
+      // For each of the last 7 days, find the usage hours
+      for (var day in last7Days) {
+        double hoursForDay = 0.0;
+        
+        // Look for usage records on this day
+        for (var record in usageHistory) {
+          if (record['date'] != null) {
+            try {
+              final recordDate = DateTime.parse(record['date']);
+              if (recordDate.year == day.year && 
+                  recordDate.month == day.month && 
+                  recordDate.day == day.day) {
+                hoursForDay += (record['hours_used'] ?? 0.0).toDouble();
+              }
+            } catch (e) {
+              AppConfig.logError('Error parsing date in usage record: $e');
+            }
+          }
+        }
+        
+        dailyHours.add(hoursForDay);
+      }
+      
+      hoursData[tractorId] = dailyHours;
+    }
+    
+    return hoursData;
+  }
+
   // ==================== BAR CHART: Hours per Day per Tractor ====================
   Widget _buildHoursBarChart() {
     return Consumer<TractorProvider>(
       builder: (context, provider, child) {
         if (provider.tractors.isEmpty) {
           return const SizedBox.shrink();
+        }
+
+        if (_isLoadingUsageData) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Daily Usage (Last 7 Days)',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                height: 220,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 16),
+                      Text('Loading usage data...'),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          );
         }
 
         final last7Days = List.generate(7, (i) {
@@ -300,15 +404,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             t.value.tractorId: AppColors.chartColors[t.key % AppColors.chartColors.length]
         };
 
-        // === MOCK DATA: Replace with real hours from API later ===
-        final Map<String, List<double>> hoursData = {
-          for (var id in tractorIds)
-            id: List.generate(7, (day) {
-              final base = (id.hashCode.abs() % 6) + 1; // 1–6 hrs
-              final variance = (day % 3) - 1; // -1, 0, +1
-              return (base + variance).clamp(0.5, 8.0).toDouble();
-            }),
-        };
+        // === LIVE DATA: Get real hours from usage history ===
+        final Map<String, List<double>> hoursData = _buildUsageDataForChart(tractorIds, last7Days);
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,

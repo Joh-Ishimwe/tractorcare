@@ -237,7 +237,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   Widget _buildCalendarGrid() {
     final firstDayOfMonth = DateTime(_focusedDay.year, _focusedDay.month, 1);
     final lastDayOfMonth = DateTime(_focusedDay.year, _focusedDay.month + 1, 0);
-    final firstWeekday = firstDayOfMonth.weekday;
+    final firstWeekday = (firstDayOfMonth.weekday % 7); // Convert Monday=1,Sunday=7 to Sunday=0,Monday=1
     final daysInMonth = lastDayOfMonth.day;
 
     return Expanded(
@@ -272,11 +272,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
               ),
               itemCount: 42, // 6 weeks * 7 days
               itemBuilder: (context, index) {
-                final week = index ~/ 7;
-                final dayOfWeek = index % 7;
-                
                 // Calculate the actual date for this cell
-                final dayNumber = (week * 7 + dayOfWeek) - (firstWeekday % 7) + 1;
+                final dayNumber = index - firstWeekday + 1;
                 
                 if (dayNumber < 1 || dayNumber > daysInMonth) {
                   return const SizedBox(); // Empty cell for days outside current month
@@ -297,7 +294,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     margin: const EdgeInsets.all(2),
                     decoration: BoxDecoration(
                       color: isSelected 
-                          ? AppColors.primary.withValues(alpha: 0.2)
+                          ? AppColors.primary.withOpacity(0.2)
                           : Colors.transparent,
                       border: isToday 
                           ? Border.all(color: AppColors.primary, width: 2)
