@@ -16,8 +16,7 @@ TractorCare is a hybrid machine learning system designed for the early detection
 - [ Running the Application](#-running-the-application)
 - [ Project Structure](#-project-structure)
 - [ Important Links](#-important-links)
-- [ Deployment](#-deployment)
-- [ Troubleshooting](#️-troubleshooting)
+
 
 ---
 
