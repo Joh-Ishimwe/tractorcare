@@ -139,13 +139,123 @@ class _DashboardScreenState extends State<DashboardScreen> {
     setState(() => _currentIndex = index);
     switch (index) {
       case 1:
-      case 2:
         Navigator.pushNamed(context, '/tractors');
+        break;
+      case 2:
+        _showTractorSelectionForAudioTest();
         break;
       case 3:
         Navigator.pushNamed(context, '/maintenance');
         break;
     }
+  }
+
+  void _showTractorSelectionForAudioTest() {
+    final provider = Provider.of<TractorProvider>(context, listen: false);
+    final tractors = provider.tractors;
+
+    if (tractors.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No tractors available. Please add a tractor first.'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Select Tractor for Audio Test',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Choose which tractor you want to test',
+              style: TextStyle(
+                fontSize: 14,
+                color: AppColors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 20),
+            ...tractors.map((tractor) => Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: AppColors.success.withOpacity(0.1),
+                  child: const Icon(
+                    Icons.agriculture,
+                    color: AppColors.success,
+                  ),
+                ),
+                title: Text(
+                  tractor.tractorId,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 16,
+                  ),
+                ),
+                subtitle: Text(
+                  '${tractor.model} • ${tractor.engineHours} hours',
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 14,
+                  ),
+                ),
+                trailing: const Icon(
+                  Icons.mic,
+                  color: AppColors.success,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(color: Colors.grey.shade200),
+                ),
+                onTap: () {
+                  Navigator.pop(context); // Close the bottom sheet
+                  // Navigate directly to recording screen
+                  Navigator.pushNamed(
+                    context,
+                    '/recording',
+                    arguments: {
+                      'tractor_id': tractor.tractorId,
+                      'engine_hours': tractor.engineHours,
+                    },
+                  );
+                },
+              ),
+            )).toList(),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -406,6 +516,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
         // === LIVE DATA: Get real hours from usage history ===
         final Map<String, List<double>> hoursData = _buildUsageDataForChart(tractorIds, last7Days);
+        
+        // Debug: Log the chart data
+        AppConfig.log('Chart Data for ${tractorIds.length} tractors:');
+        for (var entry in hoursData.entries) {
+          AppConfig.log('  ${entry.key}: ${entry.value}');
+        }
+        
+        // Calculate dynamic maxY based on actual data, minimum 5
+        double maxUsage = 5.0; // Minimum scale
+        for (var tractorData in hoursData.values) {
+          for (var hours in tractorData) {
+            if (hours > maxUsage) maxUsage = hours;
+          }
+        }
+        // Round up to next multiple of 5 for better scale
+        maxUsage = ((maxUsage / 5).ceil() * 5).toDouble();
+        if (maxUsage < 5) maxUsage = 5.0;
+        
+        AppConfig.log('Chart maxY set to: $maxUsage');
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -420,7 +549,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: BarChart(
                 BarChartData(
                   alignment: BarChartAlignment.spaceAround,
-                  maxY: 10,
+                  maxY: maxUsage,
                   barTouchData: BarTouchData(
                     enabled: true,
                     touchTooltipData: BarTouchTooltipData(
@@ -439,7 +568,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       sideTitles: SideTitles(
                         showTitles: true,
                         reservedSize: 32,
-                        interval: 2,
+                        interval: maxUsage <= 5 ? 1 : (maxUsage / 5).ceil().toDouble(),
                         getTitlesWidget: (value, meta) => Text(
                           '${value.toInt()}h',
                           style: const TextStyle(fontSize: 10, color: AppColors.textSecondary),
@@ -479,7 +608,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         return BarChartRodData(
                           toY: hours,
                           color: statusColor[tractorId],
-                          width: 14,
+                          width: tractorIds.length == 1 ? 28 : 14, // Wider bars for single tractor
                           borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
                         );
                       }).toList(),

@@ -134,7 +134,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
         // Also reload from server to ensure consistency
         _loadRecentPredictions();
         
-        Navigator.pushReplacementNamed(
+        await Navigator.pushNamed(
           context,
           '/audio-results',
           arguments: {
@@ -144,6 +144,11 @@ class _RecordingScreenState extends State<RecordingScreen> {
             'recording_duration': _recordingDuration,
           },
         );
+        
+        // Refresh predictions when returning from results screen
+        if (mounted) {
+          _loadRecentPredictions();
+        }
       }
     } catch (e) {
       AppConfig.logError('Audio upload failed', e);
@@ -175,7 +180,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
         // Also reload from server to ensure consistency
         _loadRecentPredictions();
         
-        Navigator.pushReplacementNamed(
+        await Navigator.pushNamed(
           context,
           '/audio-results',
           arguments: {
@@ -185,6 +190,11 @@ class _RecordingScreenState extends State<RecordingScreen> {
             'recording_duration': _recordingDuration,
           },
         );
+        
+        // Refresh predictions when returning from results screen
+        if (mounted) {
+          _loadRecentPredictions();
+        }
       }
     } catch (e) {
       AppConfig.logError('Audio upload failed', e);
@@ -700,7 +710,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
                                   Row(
                                     children: [
                                       Text(
-                                        '${prediction.formattedDateTime}',
+                                        prediction.formattedDateTime,
                                         style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
                                       ),
                                       const SizedBox(width: 8),
@@ -748,7 +758,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
                           ],
                         ),
                         ),
-                      )).toList(),
+                      )),
                     ],
                   ],
                 ),
