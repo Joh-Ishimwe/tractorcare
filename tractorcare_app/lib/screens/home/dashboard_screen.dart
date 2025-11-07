@@ -81,16 +81,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
     for (final tractor in tractorProvider.tractors) {
       try {
         // Get maintenance alerts for this tractor
-        final tasks = await apiService.getMaintenanceTasks(tractor.id, completed: false);
+        final tasks = await apiService.getMaintenanceTasks(tractor.tractorId, completed: false);
         allTasks.addAll(tasks);
         
         // Get tractor summary for usage data
-        final summary = await apiService.getTractorSummary(tractor.id);
-        summaries[tractor.id] = summary;
+        final summary = await apiService.getTractorSummary(tractor.tractorId);
+        summaries[tractor.tractorId] = summary;
         
-        AppConfig.log('Loaded ${tasks.length} maintenance tasks for tractor ${tractor.id}');
+        AppConfig.log('Loaded ${tasks.length} maintenance tasks for tractor ${tractor.tractorId}');
       } catch (e) {
-        AppConfig.logError('Failed to load data for tractor ${tractor.id}', e);
+        AppConfig.logError('Failed to load data for tractor ${tractor.tractorId}', e);
         // Continue with other tractors even if one fails
       }
     }

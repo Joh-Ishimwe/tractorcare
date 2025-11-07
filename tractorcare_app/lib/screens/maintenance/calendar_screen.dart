@@ -56,12 +56,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
       for (final tractor in tractorProvider.tractors) {
         try {
           // Get both upcoming and completed maintenance
-          final upcomingTasks = await apiService.getMaintenanceTasks(tractor.id, completed: false);
-          final completedTasks = await apiService.getMaintenanceTasks(tractor.id, completed: true);
+          final upcomingTasks = await apiService.getMaintenanceTasks(tractor.tractorId, completed: false);
+          final completedTasks = await apiService.getMaintenanceTasks(tractor.tractorId, completed: true);
           
           final allTasks = [...upcomingTasks, ...completedTasks];
           
-          AppConfig.log('Loaded ${allTasks.length} maintenance tasks for tractor ${tractor.id}');
+          AppConfig.log('Loaded ${allTasks.length} maintenance tasks for tractor ${tractor.tractorId}');
           
           // Group tasks by date
           for (final task in allTasks) {
@@ -77,7 +77,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
             events[dateKey]!.add(task);
           }
         } catch (e) {
-          AppConfig.logError('Failed to load maintenance for tractor ${tractor.id}', e);
+          AppConfig.logError('Failed to load maintenance for tractor ${tractor.tractorId}', e);
           // Continue with other tractors
         }
       }

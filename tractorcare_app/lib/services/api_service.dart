@@ -283,8 +283,8 @@ class ApiService {
           'anomaly_score': data['anomaly_score'] ?? 0.0,
           'audio_path': data['file_path'] ?? data['audio_file_path'] ?? '',
           'created_at': data['recorded_at'] ?? data['created_at'],
-          'duration_seconds': data['duration_seconds'] ?? data['duration'] ?? null,
-          'baseline_comparison': data['baseline_comparison'] ?? null,
+          'duration_seconds': data['duration_seconds'] ?? data['duration'],
+          'baseline_comparison': data['baseline_comparison'],
         };
         return AudioPrediction.fromJson(normalized);
       } else {
@@ -297,78 +297,94 @@ class ApiService {
   }
 
   Future<List<Maintenance>> getMaintenanceTasks(String tractorId, {bool completed = false}) async {
-    AppConfig.log('🔧 Fetching maintenance (${completed ? 'completed' : 'upcoming'}) for tractor: $tractorId');
+    await ensureTokenLoaded();
     
-    // TODO: Replace with actual API calls when backend endpoints are implemented
-    // For now, return mock data to allow UI testing
+    AppConfig.log('🔧 Fetching maintenance records for tractor: $tractorId');
     
-    if (completed) {
-      // Return mock completed maintenance tasks
-      return [
-        Maintenance(
-          id: 'maint_001',
-          tractorId: tractorId,
-          userId: 'user_001',
-          type: MaintenanceType.service,
-          customType: 'Oil Change',
-          dueDate: DateTime.now().subtract(const Duration(days: 30)),
-          notes: 'Regular oil change completed',
-          status: MaintenanceStatus.completed,
-          completedAt: DateTime.now().subtract(const Duration(days: 30)),
-          actualCost: 45000.0,
-          createdAt: DateTime.now().subtract(const Duration(days: 35)),
-        ),
-        Maintenance(
-          id: 'maint_002',
-          tractorId: tractorId,
-          userId: 'user_001',
-          type: MaintenanceType.inspection,
-          customType: 'Filter Replacement',
-          dueDate: DateTime.now().subtract(const Duration(days: 60)),
-          notes: 'Air and fuel filters replaced',
-          status: MaintenanceStatus.completed,
-          completedAt: DateTime.now().subtract(const Duration(days: 60)),
-          actualCost: 25000.0,
-          createdAt: DateTime.now().subtract(const Duration(days: 65)),
-        ),
-      ];
-    } else {
-      // Return mock upcoming maintenance tasks
-      return [
-        Maintenance(
-          id: 'maint_003',
-          tractorId: tractorId,
-          userId: 'user_001',
-          type: MaintenanceType.service,
-          customType: 'Oil Change',
-          dueDate: DateTime.now().add(const Duration(days: 7)),
-          notes: 'Regular oil change due soon',
-          status: MaintenanceStatus.due,
-          createdAt: DateTime.now().subtract(const Duration(days: 5)),
-        ),
-        Maintenance(
-          id: 'maint_004',
-          tractorId: tractorId,
-          userId: 'user_001',
-          type: MaintenanceType.inspection,
-          customType: 'Annual Inspection',
-          dueDate: DateTime.now().add(const Duration(days: 30)),
-          notes: 'Annual safety and performance inspection',
-          status: MaintenanceStatus.upcoming,
-          createdAt: DateTime.now(),
-        ),
-        Maintenance(
-          id: 'maint_005',
-          tractorId: tractorId,
-          userId: 'user_001',
-          type: MaintenanceType.repair,
-          customType: 'Hydraulic System Check',
-          dueDate: DateTime.now().subtract(const Duration(days: 2)),
-          notes: 'Overdue hydraulic system maintenance',
-          status: MaintenanceStatus.overdue,
-          createdAt: DateTime.now().subtract(const Duration(days: 10)),
-        ),
-      ];
+    try {
+      final url = AppConfig.getApiUrl('/maintenance/$tractorId/records');
+      final response = await http.get(
+        Uri.parse(url).replace(queryParameters: {
+          'limit': '50',
+        }),
+        headers: _getHeaders(),
+      ).timeout(Duration(seconds: AppConfig.apiTimeout));
+      
+      AppConfig.log('📡 Maintenance response status: ${response.statusCode}');
+      AppConfig.log('📄 Maintenance response body: ${response.body}');
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        List<dynamic> recordsList;
+        
+        if (data is List) {
+          recordsList = data;
+        } else if (data is Map && data['records'] != null) {
+          recordsList = data['records'];
+        } else {
+          recordsList = [];
+        }
+        
+        AppConfig.log('✅ Found ${recordsList.length} maintenance records');
+        
+        // Convert backend records to Maintenance objects
+        List<Maintenance> maintenanceList = recordsList.map((record) {
+          return Maintenance(
+            id: record['id'] ?? '',
+            tractorId: record['tractor_id'] ?? tractorId,
+            userId: 'user_001', // Default user
+            type: MaintenanceType.service, // Default type
+            customType: record['task_name'] ?? 'Maintenance',
+            dueDate: DateTime.parse(record['completion_date'] ?? DateTime.now().toIso8601String()),
+            notes: record['notes'] ?? record['description'] ?? '',
+            status: MaintenanceStatus.completed, // All records from backend are completed
+            completedAt: DateTime.parse(record['completion_date'] ?? DateTime.now().toIso8601String()),
+            actualCost: (record['actual_cost_rwf'] ?? 0).toDouble(),
+            createdAt: DateTime.parse(record['created_at'] ?? DateTime.now().toIso8601String()),
+          );
+        }).toList();
+        
+        // Filter by completed status if requested
+        if (completed) {
+          return maintenanceList.where((m) => m.status == MaintenanceStatus.completed).toList();
+        } else {
+          // For "upcoming" tasks, we'll add some mock upcoming items since backend only has completed records
+          // In a real app, these would come from a separate scheduling system
+          List<Maintenance> upcomingTasks = [
+            Maintenance(
+              id: 'upcoming_001',
+              tractorId: tractorId,
+              userId: 'user_001',
+              type: MaintenanceType.service,
+              customType: 'Oil Change',
+              dueDate: DateTime.now().add(const Duration(days: 30)),
+              notes: 'Regular oil change service due',
+              status: MaintenanceStatus.upcoming,
+              createdAt: DateTime.now(),
+            ),
+            Maintenance(
+              id: 'upcoming_002',
+              tractorId: tractorId,
+              userId: 'user_001',
+              type: MaintenanceType.inspection,
+              customType: 'Annual Inspection',
+              dueDate: DateTime.now().add(const Duration(days: 90)),
+              notes: 'Annual safety inspection',
+              status: MaintenanceStatus.upcoming,
+              createdAt: DateTime.now(),
+            ),
+          ];
+          return upcomingTasks;
+        }
+      } else if (response.statusCode == 404) {
+        AppConfig.log('ℹ️ No maintenance records found for tractor $tractorId');
+        return [];
+      }
+      throw Exception('Failed to get maintenance records - Status: ${response.statusCode}');
+    } catch (e) {
+      AppConfig.logError('❌ Get maintenance records error', e);
+      // Return empty list instead of throwing to allow UI to work
+      return [];
     }
   }
 
@@ -509,8 +525,8 @@ class ApiService {
           'anomaly_score': data['anomaly_score'] ?? 0.0,
           'audio_path': data['file_path'] ?? data['audio_file_path'] ?? '',
           'created_at': data['recorded_at'] ?? data['created_at'],
-          'duration_seconds': data['duration_seconds'] ?? data['duration'] ?? null,
-          'baseline_comparison': data['baseline_comparison'] ?? null,
+          'duration_seconds': data['duration_seconds'] ?? data['duration'],
+          'baseline_comparison': data['baseline_comparison'],
         };
         return AudioPrediction.fromJson(normalized);
       } else {
@@ -621,27 +637,64 @@ class ApiService {
   }
 
   Future<Maintenance> createMaintenance(Map<String, dynamic> maintenanceData) async {
-    AppConfig.log('🔧 Creating maintenance task (mock data)');
+    await ensureTokenLoaded();
     
-    // TODO: Replace with actual API call when backend endpoint is implemented
-    // For now, return mock created maintenance data
-    await Future.delayed(const Duration(milliseconds: 500)); // Simulate network delay
+    AppConfig.log('🔧 Recording completed maintenance task');
     
-    final now = DateTime.now();
-    return Maintenance(
-      id: 'maint_${now.millisecondsSinceEpoch}',
-      tractorId: maintenanceData['tractor_id'] ?? '',
-      userId: maintenanceData['user_id'] ?? 'user_001',
-      type: MaintenanceType.values.firstWhere(
-        (type) => type.toString().split('.').last == maintenanceData['type'],
-        orElse: () => MaintenanceType.service,
-      ),
-      customType: maintenanceData['custom_type'] ?? 'Service',
-      dueDate: DateTime.parse(maintenanceData['due_date'] ?? now.add(const Duration(days: 30)).toIso8601String()),
-      notes: maintenanceData['notes'],
-      status: MaintenanceStatus.upcoming,
-      createdAt: now,
-    );
+    try {
+      final tractorId = maintenanceData['tractor_id'] ?? '';
+      final url = AppConfig.getApiUrl('/maintenance/$tractorId/records');
+      
+      // Format data for backend API
+      final requestData = {
+        'task_name': maintenanceData['task_name'] ?? maintenanceData['custom_type'] ?? 'Maintenance Task',
+        'description': maintenanceData['description'] ?? maintenanceData['notes'] ?? '',
+        'completion_date': maintenanceData['completion_date'] ?? DateTime.now().toIso8601String(),
+        'completion_hours': maintenanceData['completion_hours'] ?? 1,
+        'actual_time_minutes': maintenanceData['actual_time_minutes'] ?? 30,
+        'actual_cost_rwf': maintenanceData['actual_cost_rwf'] ?? maintenanceData['actual_cost'] ?? 0,
+        'service_location': maintenanceData['service_location'] ?? '',
+        'service_provider': maintenanceData['service_provider'] ?? '',
+        'notes': maintenanceData['notes'] ?? '',
+        'performed_by': maintenanceData['performed_by'] ?? '',
+        'parts_used': maintenanceData['parts_used'] ?? [],
+      };
+      
+      AppConfig.log('📊 Request data: $requestData');
+      
+      final response = await http.post(
+        Uri.parse(url),
+        headers: _getHeaders(),
+        body: json.encode(requestData),
+      ).timeout(Duration(seconds: AppConfig.apiTimeout));
+      
+      AppConfig.log('📡 Create maintenance response status: ${response.statusCode}');
+      AppConfig.log('📄 Create maintenance response body: ${response.body}');
+      
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final responseData = json.decode(response.body);
+        AppConfig.logSuccess('✅ Maintenance recorded successfully');
+        
+        // Convert response back to Maintenance object
+        return Maintenance(
+          id: responseData['id'] ?? '',
+          tractorId: responseData['tractor_id'] ?? tractorId,
+          userId: 'user_001', // Default user
+          type: MaintenanceType.service,
+          customType: responseData['task_name'] ?? 'Maintenance',
+          dueDate: DateTime.parse(responseData['completion_date'] ?? DateTime.now().toIso8601String()),
+          notes: responseData['notes'] ?? '',
+          status: MaintenanceStatus.completed,
+          completedAt: DateTime.parse(responseData['completion_date'] ?? DateTime.now().toIso8601String()),
+          actualCost: (responseData['actual_cost_rwf'] ?? 0).toDouble(),
+          createdAt: DateTime.parse(responseData['created_at'] ?? DateTime.now().toIso8601String()),
+        );
+      }
+      throw Exception('Failed to record maintenance - Status: ${response.statusCode}: ${response.body}');
+    } catch (e) {
+      AppConfig.logError('❌ Create maintenance error', e);
+      rethrow;
+    }
   }
 
   Future<Map<String, dynamic>> register(String email, String password, String fullName) async {
@@ -984,30 +1037,44 @@ class ApiService {
   // ===== MAINTENANCE METHODS =====
   
   Future<List<dynamic>> getMaintenanceAlerts(String tractorId) async {
+    await ensureTokenLoaded();
+    
     AppConfig.log('🔧 Fetching maintenance alerts for tractor: $tractorId');
     
-    // TODO: Replace with actual API call when backend endpoint is implemented
-    // For now, return mock maintenance alerts data
-    return [
-      {
-        'id': 'alert_001',
-        'tractor_id': tractorId,
-        'task_name': 'Oil Change',
-        'due_date': DateTime.now().add(const Duration(days: 7)).toIso8601String(),
-        'description': 'Regular oil change due soon',
-        'status': 'due',
-        'created_at': DateTime.now().subtract(const Duration(days: 5)).toIso8601String(),
-      },
-      {
-        'id': 'alert_002',
-        'tractor_id': tractorId,
-        'task_name': 'Hydraulic System Check',
-        'due_date': DateTime.now().subtract(const Duration(days: 2)).toIso8601String(),
-        'description': 'Overdue hydraulic system maintenance',
-        'status': 'overdue',
-        'created_at': DateTime.now().subtract(const Duration(days: 10)).toIso8601String(),
-      },
-    ];
+    try {
+      final url = AppConfig.getApiUrl('/maintenance/$tractorId/alerts');
+      final response = await http.get(
+        Uri.parse(url),
+        headers: _getHeaders(),
+      ).timeout(Duration(seconds: AppConfig.apiTimeout));
+      
+      AppConfig.log('📡 Alerts response status: ${response.statusCode}');
+      AppConfig.log('📄 Alerts response body: ${response.body}');
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        List<dynamic> alertsList;
+        
+        if (data is List) {
+          alertsList = data;
+        } else if (data is Map && data['alerts'] != null) {
+          alertsList = data['alerts'];
+        } else {
+          alertsList = [];
+        }
+        
+        AppConfig.log('✅ Found ${alertsList.length} maintenance alerts');
+        return alertsList;
+      } else if (response.statusCode == 404) {
+        AppConfig.log('ℹ️ No maintenance alerts found for tractor $tractorId');
+        return [];
+      }
+      throw Exception('Failed to get maintenance alerts - Status: ${response.statusCode}');
+    } catch (e) {
+      AppConfig.logError('❌ Get maintenance alerts error', e);
+      // Return empty list instead of throwing to allow UI to work
+      return [];
+    }
   }
 
   Future<TractorSummary> getTractorSummary(String tractorId) async {
