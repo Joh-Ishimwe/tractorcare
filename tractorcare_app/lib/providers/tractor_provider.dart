@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import '../models/tractor.dart';
+import '../models/audio_prediction.dart';
 import '../services/api_service.dart';
 
 class TractorProvider with ChangeNotifier {
@@ -11,6 +12,9 @@ class TractorProvider with ChangeNotifier {
   Tractor? _selectedTractor;
   bool _isLoading = false;
   String? _error;
+  
+  // Store recent predictions for each tractor
+  Map<String, List<AudioPrediction>> _recentPredictions = {};
 
   List<Tractor> get tractors => _tractors;
   Tractor? get selectedTractor => _selectedTractor;
@@ -43,6 +47,50 @@ class TractorProvider with ChangeNotifier {
       _setError(e.toString());
       _setLoading(false);
     }
+  }
+
+  // Load recent predictions for all tractors to determine status
+  Future<void> loadRecentPredictions() async {
+    try {
+      _recentPredictions.clear();
+      
+      for (final tractor in _tractors) {
+        try {
+          // Get the most recent predictions for each tractor
+          final predictions = await _api.getPredictions(tractor.tractorId);
+          _recentPredictions[tractor.tractorId] = predictions;
+        } catch (e) {
+          // If we can't load predictions for a tractor, continue with others
+          print('Failed to load predictions for tractor ${tractor.tractorId}: $e');
+          _recentPredictions[tractor.tractorId] = [];
+        }
+      }
+      notifyListeners();
+    } catch (e) {
+      print('Failed to load recent predictions: $e');
+    }
+  }
+
+  // Check if a tractor has recent abnormal predictions
+  bool _hasCriticalPredictions(String tractorId) {
+    final predictions = _recentPredictions[tractorId] ?? [];
+    if (predictions.isEmpty) return false;
+    
+    // Check if the most recent prediction is abnormal
+    final mostRecent = predictions.first;
+    return mostRecent.predictionClass == PredictionClass.abnormal && 
+           mostRecent.anomalyScore > 0.8; // High anomaly score = critical
+  }
+
+  // Check if a tractor has recent warning-level predictions  
+  bool _hasWarningPredictions(String tractorId) {
+    final predictions = _recentPredictions[tractorId] ?? [];
+    if (predictions.isEmpty) return false;
+    
+    // Check if the most recent prediction shows warning signs
+    final mostRecent = predictions.first;
+    return mostRecent.predictionClass == PredictionClass.abnormal && 
+           mostRecent.anomalyScore > 0.5 && mostRecent.anomalyScore <= 0.8; // Medium anomaly score = warning
   }
 
   // Create new tractor
@@ -149,14 +197,64 @@ class TractorProvider with ChangeNotifier {
     return _tractors.where((t) => t.status == status).toList();
   }
 
-  // Get critical tractors
+  // Get critical tractors (based on recent abnormal predictions)
   List<Tractor> getCriticalTractors() {
-    return getTractorsByStatus(TractorStatus.critical);
+    return _tractors.where((tractor) => _hasCriticalPredictions(tractor.tractorId)).toList();
   }
 
-  // Get warning tractors
+  // Get warning tractors (based on recent warning-level predictions)
   List<Tractor> getWarningTractors() {
-    return getTractorsByStatus(TractorStatus.warning);
+    return _tractors.where((tractor) => _hasWarningPredictions(tractor.tractorId)).toList();
+  }
+
+  // Get the tractor with the most recent critical issue (for navigation)
+  Tractor? getMostRecentCriticalTractor() {
+    final criticalTractors = getCriticalTractors();
+    if (criticalTractors.isEmpty) return null;
+    
+    // Find the tractor with the most recent abnormal prediction
+    Tractor? mostRecentCritical;
+    DateTime? latestAbnormalTime;
+    
+    for (final tractor in criticalTractors) {
+      final predictions = _recentPredictions[tractor.tractorId] ?? [];
+      if (predictions.isNotEmpty) {
+        final mostRecentPrediction = predictions.first;
+        if (mostRecentPrediction.predictionClass == PredictionClass.abnormal) {
+          if (latestAbnormalTime == null || mostRecentPrediction.createdAt.isAfter(latestAbnormalTime)) {
+            latestAbnormalTime = mostRecentPrediction.createdAt;
+            mostRecentCritical = tractor;
+          }
+        }
+      }
+    }
+    
+    return mostRecentCritical;
+  }
+
+  // Get the tractor with the most recent warning issue (for navigation) 
+  Tractor? getMostRecentWarningTractor() {
+    final warningTractors = getWarningTractors();
+    if (warningTractors.isEmpty) return null;
+    
+    // Find the tractor with the most recent warning prediction
+    Tractor? mostRecentWarning;
+    DateTime? latestWarningTime;
+    
+    for (final tractor in warningTractors) {
+      final predictions = _recentPredictions[tractor.tractorId] ?? [];
+      if (predictions.isNotEmpty) {
+        final mostRecentPrediction = predictions.first;
+        if (mostRecentPrediction.predictionClass == PredictionClass.abnormal) {
+          if (latestWarningTime == null || mostRecentPrediction.createdAt.isAfter(latestWarningTime)) {
+            latestWarningTime = mostRecentPrediction.createdAt;
+            mostRecentWarning = tractor;
+          }
+        }
+      }
+    }
+    
+    return mostRecentWarning;
   }
 
   // Get good tractors

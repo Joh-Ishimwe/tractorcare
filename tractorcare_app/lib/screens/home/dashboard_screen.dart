@@ -72,6 +72,10 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
       await tractorProvider.fetchTractors();
       AppConfig.log('Tractors fetched: ${tractorProvider.tractors.length}');
       
+      // Load recent predictions to determine tractor status
+      await tractorProvider.loadRecentPredictions();
+      AppConfig.log('Recent predictions loaded for status determination');
+      
       // Load maintenance data for all tractors
       await _loadMaintenanceActivities();
       
@@ -273,6 +277,44 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     );
   }
 
+  // Navigate to the tractor with the most recent critical issue
+  void _navigateToCriticalTractor(TractorProvider provider) {
+    final criticalTractor = provider.getMostRecentCriticalTractor();
+    if (criticalTractor != null) {
+      Navigator.pushNamed(
+        context,
+        '/tractor-detail',
+        arguments: criticalTractor.tractorId,
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No critical issues found'),
+          backgroundColor: AppColors.info,
+        ),
+      );
+    }
+  }
+
+  // Navigate to the tractor with the most recent warning issue
+  void _navigateToWarningTractor(TractorProvider provider) {
+    final warningTractor = provider.getMostRecentWarningTractor();
+    if (warningTractor != null) {
+      Navigator.pushNamed(
+        context,
+        '/tractor-detail',
+        arguments: warningTractor.tractorId,
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No warning issues found'),
+          backgroundColor: AppColors.info,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -338,11 +380,23 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: _buildStatCard(Icons.warning, warningTractors.toString(), 'Warnings', AppColors.warning),
+                  child: _buildClickableStatCard(
+                    Icons.warning, 
+                    warningTractors.toString(), 
+                    'Warnings', 
+                    AppColors.warning,
+                    () => _navigateToWarningTractor(provider),
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: _buildStatCard(Icons.error, criticalTractors.toString(), 'Critical', AppColors.error),
+                  child: _buildClickableStatCard(
+                    Icons.error, 
+                    criticalTractors.toString(), 
+                    'Critical', 
+                    AppColors.error,
+                    () => _navigateToCriticalTractor(provider),
+                  ),
                 ),
               ],
             ),
@@ -350,10 +404,6 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
         );
       },
     );
-  }
-
-  Widget _buildStatCard(IconData icon, String value, String label, Color color) {
-    return _buildClickableStatCard(icon, value, label, color, null);
   }
 
   Widget _buildClickableStatCard(IconData icon, String value, String label, Color color, VoidCallback? onTap) {
