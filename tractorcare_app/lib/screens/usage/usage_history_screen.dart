@@ -58,8 +58,13 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
         errorMessage = null;
       });
 
+      print('🔄 Loading usage data for tractor: $tractorId');
+      
       final historyResponse = await _apiService.getUsageHistory(tractorId);
       final statsResponse = await _apiService.getUsageStats(tractorId);
+      
+      print('📊 Usage history response: $historyResponse');
+      print('📈 Usage stats response: $statsResponse');
       
       if (mounted) {
         setState(() {
@@ -69,6 +74,7 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
         });
       }
     } catch (e) {
+      print('❌ Error loading usage data: $e');
       if (mounted) {
         setState(() {
           errorMessage = 'Failed to load usage data: ${e.toString()}';
@@ -101,8 +107,8 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
                   _buildLogUsageCard(),
                   const SizedBox(height: 16),
                   
-                  // Usage Statistics
-                  if (usageStats != null) _buildUsageStatsCard(),
+                  // Usage Statistics (always show, even if empty)
+                  _buildUsageStatsCard(),
                   const SizedBox(height: 16),
                   
                   // Usage History
@@ -114,28 +120,31 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
   }
 
   Future<void> _logDailyUsage() async {
-    final endHoursStr = _endHoursController.text.trim();
-    if (endHoursStr.isEmpty) {
+    final hoursOperatedStr = _endHoursController.text.trim();
+    if (hoursOperatedStr.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter end hours')),
+        const SnackBar(content: Text('Please enter hours operated today')),
       );
       return;
     }
 
-    final endHours = double.tryParse(endHoursStr);
-    if (endHours == null) {
+    final hoursOperated = double.tryParse(hoursOperatedStr);
+    if (hoursOperated == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter a valid number for hours')),
       );
       return;
     }
 
-    if (endHours <= currentHours) {
+    if (hoursOperated <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('End hours must be greater than current hours ($currentHours)')),
+        const SnackBar(content: Text('Hours operated must be greater than 0')),
       );
       return;
     }
+
+    // Calculate new total hours
+    final newTotalHours = currentHours + hoursOperated;
 
     try {
       setState(() {
@@ -143,11 +152,16 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
         errorMessage = null;
       });
 
-      await _apiService.logDailyUsage(
+      final logResponse = await _apiService.logDailyUsage(
         tractorId,
-        endHours,
+        newTotalHours,
         _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
       );
+
+      print('✅ Usage logged successfully: $logResponse');
+
+      // Update current hours locally
+      currentHours = newTotalHours.toInt();
 
       // Clear form and reload data
       _endHoursController.clear();
@@ -161,6 +175,7 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
       );
 
       // Reload usage data
+      print('🔄 Reloading usage data after logging...');
       await _loadUsageData();
 
     } catch (e) {
@@ -241,22 +256,30 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Log Daily Usage',
+              'Log Today\'s Operation',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
                 color: AppColors.textPrimary,
               ),
             ),
+            const SizedBox(height: 8),
+            Text(
+              'Enter only the hours operated today. Current total: $currentHours hours',
+              style: const TextStyle(
+                fontSize: 14,
+                color: AppColors.textSecondary,
+              ),
+            ),
             const SizedBox(height: 16),
             TextField(
               controller: _endHoursController,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: InputDecoration(
-                labelText: 'End Hours',
-                hintText: 'Enter hours after use (must be > $currentHours)',
-                border: const OutlineInputBorder(),
-                prefixIcon: const Icon(Icons.schedule),
+              decoration: const InputDecoration(
+                labelText: 'Hours Operated Today',
+                hintText: 'Enter hours operated (e.g., 3.5)',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.schedule),
               ),
             ),
             const SizedBox(height: 12),
@@ -299,6 +322,39 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
   }
 
   Widget _buildUsageStatsCard() {
+    // If usageStats is empty, show a message
+    if (usageStats == null || usageStats!.isEmpty) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Usage Statistics',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Center(
+                child: Text(
+                  'No usage statistics available yet.\nLog some usage to see statistics.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16.0),
