@@ -87,32 +87,32 @@ Pumps and tractor engines share similar mechanical characteristics:
 ###  Application Features Implemented
 
 **Mobile Application (Flutter)**
-- ✅ **Tractor Management:** Add, edit, and track multiple tractors
-- ✅ **Audio Recording:** High-quality audio capture with real-time processing
-- ✅ **Baseline Collection:** Establish healthy engine sound profiles
-- ✅ **Test Sound Analysis:** Compare current recordings against baselines
-- ✅ **Maintenance Scheduling:** Rule-based and AI-triggered maintenance alerts
-- ✅ **Usage Tracking:** Log daily tractor usage and operating hours
-- ✅ **Prediction History:** View past anomaly detection results with timestamps
-- ✅ **Dashboard Analytics:** Visual charts of usage patterns and maintenance trends
-- ✅ **Calendar Integration:** Schedule and track maintenance activities
-- ✅ **Offline Support:** Core functionality works without internet connection
+-  **Tractor Management:** Add, edit, and track multiple tractors
+-  **Audio Recording:** High-quality audio capture with real-time processing
+-  **Baseline Collection:** Establish healthy engine sound profiles
+-  **Test Sound Analysis:** Compare current recordings against baselines
+-  **Maintenance Scheduling:** Rule-based and AI-triggered maintenance alerts
+-  **Usage Tracking:** Log daily tractor usage and operating hours
+-  **Prediction History:** View past anomaly detection results with timestamps
+-  **Dashboard Analytics:** Visual charts of usage patterns and maintenance trends
+-  **Calendar Integration:** Schedule and track maintenance activities
+-  **Offline Support:** Core functionality works without internet connection
 
 **Web Platform (Next.js)**
-- ✅ **Public Demo:** Upload audio files for instant AI analysis
-- ✅ **Product Information:** Comprehensive feature showcases
-- ✅ **Educational Content:** How the system works and benefits
-- ✅ **Responsive Design:** Works on desktop, tablet, and mobile devices
+-  **Public Demo:** Upload audio files for instant AI analysis
+-  **Product Information:** Comprehensive feature showcases
+-  **Educational Content:** How the system works and benefits
+-  **Responsive Design:** Works on desktop, tablet, and mobile devices
 
 **Backend API (FastAPI)**
-- ✅ **JWT Authentication:** Secure user registration and login
-- ✅ **Tractor Management:** CRUD operations for tractor data
-- ✅ **Audio Processing:** Real-time ML inference with MFCC extraction
-- ✅ **Baseline Management:** Store and compare healthy engine profiles
-- ✅ **Maintenance Scheduling:** Automated alerts and manual scheduling
-- ✅ **Usage Analytics:** Track operating hours and generate insights
-- ✅ **Real-time Predictions:** Instant anomaly detection with confidence scores
-- ✅ **Database Integration:** MongoDB for scalable data storage
+-  **JWT Authentication:** Secure user registration and login
+-  **Tractor Management:** CRUD operations for tractor data
+-  **Audio Processing:** Real-time ML inference with MFCC extraction
+-  **Baseline Management:** Store and compare healthy engine profiles
+-  **Maintenance Scheduling:** Automated alerts and manual scheduling
+-  **Usage Analytics:** Track operating hours and generate insights
+-  **Real-time Predictions:** Instant anomaly detection with confidence scores
+-  **Database Integration:** MongoDB for scalable data storage
 
 ---
 
@@ -193,19 +193,19 @@ When audio anomalies are detected, the system automatically craete maintenance t
 
 ---
 
-## 🔧 Installation
+##  Installation
 
 ### Prerequisites
 
 Ensure the following are installed on your development system:
 
-| Requirement | Version | Download Link |
-|-------------|---------|---------------|
-| **Python** | 3.9+ | [Download](https://www.python.org/downloads/) |
-| **Node.js** | 18+ | [Download](https://nodejs.org/) |
-| **Flutter** | 3.0+ | [Download](https://flutter.dev/docs/get-started/install) |
-| **Git** | Latest | [Download](https://git-scm.com/downloads) |
-| **MongoDB** | 5.0+ | [Download](https://www.mongodb.com/try/download/community) |
+| Requirement | Version | 
+|-------------|---------|
+| **Python** | 3.9+ |
+| **Node.js** | 18+ | 
+| **Flutter** | 3.0+ | 
+| **Git** | Latest | 
+| **MongoDB** | 5.0+ |
 
 ### Step 1: Clone the Repository
 
@@ -299,18 +299,6 @@ Update `lib/config/app_config.dart` with your API endpoint:
 static const String baseUrl = 'http://localhost:8000';  # Development
 // static const String baseUrl = 'https://your-api-domain.com';  # Production
 ```
-
-### Step 5: Database Setup
-
-**Option A: Local MongoDB**
-1. Install and start MongoDB locally
-2. Database will be created automatically on first run
-
-**Option B: MongoDB Atlas (Recommended for Production)**
-1. Create account at [MongoDB Atlas](https://www.mongodb.com/atlas)
-2. Create cluster and get connection string
-3. Update `MONGO_URL` in `.env` file
-
 ---
 
 ##  Running the Application
@@ -497,73 +485,12 @@ tractorcare/
 
 ---
 
-## 🔗 Important Links
+##  Important Links
 
 | Resource | URL |
 |----------|-----|
-| **Live Demo** | [TractorCare Web Platform](https://tractorcare.onrender.com/) | 
-| **API Documentation** | [Swagger UI](https://tractorcare-backend.onrender.com/docs) | 
-| **GitHub Repository** | [Source Code](https://github.com/Joh-Ishimwe/tractorcare) | 
-| **Design System** | [Figma Design](https://www.figma.com/design/eWGvztGWZVTiAiBUjvSEXn/TractorCare?node-id=0-1&t=bWg7Cqmcuc0fSKuk-1) |
+| **Live Demo** | [TractorCare Web Platform](https://tractorcare.onrender.com) | 
 | **Demo Video** | [YouTube Presentation](https://youtu.be/5MO33OFGWrQ) |
-
----
-
-##  Deployment
-
-### Production Deployment Guide
-
-#### Backend Deployment (Render)
-
-```
-
-**Environment Variables for Production:**
-```env
-ENVIRONMENT=production
-DEBUG=False
-MONGO_URL=mongodb+srv://username:password@cluster.mongodb.net/tractorcare_db
-SECRET_KEY=your-production-secret-key
-ALLOWED_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
-```
-
-#### Mobile App Deployment
-
-**Android APK Build:**
-```bash
-cd tractorcare_app
-flutter build apk --release
-# Output: build/app/outputs/flutter-apk/app-release.apk
-```
-
-**iOS App Store Build:**
-```bash
-cd tractorcare_app
-flutter build ios --release
-# Open ios/Runner.xcworkspace in Xcode for App Store submission
-```
-
-**Web Deployment:**
-```bash
-cd tractorcare_app
-flutter build web --release
-# Deploy build/web/ directory to your web hosting service
-```
-
----
-
-##  License
-
-This project is developed as part of an academic research initiative focused on improving agricultural productivity in Rwanda through AI-powered predictive maintenance.
-
-**Academic Use:** Free for educational and research purposes  
-**Commercial Use:** Please contact the authors for licensing terms
-
----
-
-##  Contact
-
-**Project Lead:** Josiane ISHIMWE  
-**Email:** j.ishimwe3@alustudent.com  
-**Institution:** African Leadership University  
-**Location:** Kigali, Rwanda
+| **API Documentation** | [Swagger UI](https://tractorcare-backend.onrender.com/docs) | 
+| **Design System** | [Figma Design](https://www.figma.com/design/eWGvztGWZVTiAiBUjvSEXn/TractorCare?node-id=0-1&t=bWg7Cqmcuc0fSKuk-1) |
 
