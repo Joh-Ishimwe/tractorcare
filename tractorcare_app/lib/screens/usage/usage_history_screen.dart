@@ -107,9 +107,9 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
                   _buildLogUsageCard(),
                   const SizedBox(height: 16),
                   
-                  // Usage Statistics (always show, even if empty)
-                  _buildUsageStatsCard(),
-                  const SizedBox(height: 16),
+                  // // Usage Statistics (always show, even if empty)
+                  // _buildUsageStatsCard(),
+                  // const SizedBox(height: 16),
                   
                   // Usage History
                   _buildUsageHistoryCard(),
@@ -321,102 +321,102 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
     );
   }
 
-  Widget _buildUsageStatsCard() {
-    // If usageStats is empty, show a message
-    if (usageStats == null || usageStats!.isEmpty) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Usage Statistics',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Center(
-                child: Text(
-                  'No usage statistics available yet.\nLog some usage to see statistics.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 16,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
+  // Widget _buildUsageStatsCard() {
+  //   // If usageStats is empty, show a message
+  //   if (usageStats == null || usageStats!.isEmpty) {
+  //     return Card(
+  //       child: Padding(
+  //         padding: const EdgeInsets.all(16.0),
+  //         child: Column(
+  //           crossAxisAlignment: CrossAxisAlignment.start,
+  //           children: [
+  //             const Text(
+  //               'Usage Statistics',
+  //               style: TextStyle(
+  //                 fontSize: 18,
+  //                 fontWeight: FontWeight.bold,
+  //                 color: AppColors.textPrimary,
+  //               ),
+  //             ),
+  //             const SizedBox(height: 16),
+  //             const Center(
+  //               child: Text(
+  //                 'No usage statistics available yet.\nLog some usage to see statistics.',
+  //                 textAlign: TextAlign.center,
+  //                 style: TextStyle(
+  //                   color: AppColors.textSecondary,
+  //                   fontSize: 16,
+  //                 ),
+  //               ),
+  //             ),
+  //           ],
+  //         ),
+  //       ),
+  //     );
+  //   }
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Usage Statistics',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: AppColors.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildStatItem(
-                    'Total Hours',
-                    '${usageStats!['total_hours'] ?? 0}',
-                    Icons.schedule,
-                    AppColors.info,
-                  ),
-                ),
-                Expanded(
-                  child: _buildStatItem(
-                    'Weekly Avg',
-                    '${usageStats!['weekly_average'] ?? 0}',
-                    Icons.trending_up,
-                    AppColors.success,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            if (usageStats!['next_maintenance'] != null) ...[
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppColors.warning.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.build, color: AppColors.warning),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Next Maintenance: ${usageStats!['next_maintenance']['hours_until']} hours',
-                        style: const TextStyle(fontWeight: FontWeight.w500),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
+  //   return Card(
+  //     child: Padding(
+  //       padding: const EdgeInsets.all(16.0),
+  //       child: Column(
+  //         crossAxisAlignment: CrossAxisAlignment.start,
+  //         children: [
+  //           const Text(
+  //             'Usage Statistics',
+  //             style: TextStyle(
+  //               fontSize: 18,
+  //               fontWeight: FontWeight.bold,
+  //               color: AppColors.textPrimary,
+  //             ),
+  //           ),
+  //           const SizedBox(height: 16),
+  //           Row(
+  //             children: [
+  //               Expanded(
+  //                 child: _buildStatItem(
+  //                   'Total Hours',
+  //                   '${usageStats!['total_hours'] ?? 0}',
+  //                   Icons.schedule,
+  //                   AppColors.info,
+  //                 ),
+  //               ),
+  //               Expanded(
+  //                 child: _buildStatItem(
+  //                   'Weekly Avg',
+  //                   '${usageStats!['weekly_average'] ?? 0}',
+  //                   Icons.trending_up,
+  //                   AppColors.success,
+  //                 ),
+  //               ),
+  //             ],
+  //           ),
+  //           const SizedBox(height: 12),
+  //           if (usageStats!['next_maintenance'] != null) ...[
+  //             Container(
+  //               padding: const EdgeInsets.all(12),
+  //               decoration: BoxDecoration(
+  //                 color: AppColors.warning.withOpacity(0.1),
+  //                 borderRadius: BorderRadius.circular(8),
+  //               ),
+  //               child: Row(
+  //                 children: [
+  //                   Icon(Icons.build, color: AppColors.warning),
+  //                   const SizedBox(width: 8),
+  //                   Expanded(
+  //                     child: Text(
+  //                       'Next Maintenance: ${usageStats!['next_maintenance']['hours_until']} hours',
+  //                       style: const TextStyle(fontWeight: FontWeight.w500),
+  //                     ),
+  //                   ),
+  //                 ],
+  //               ),
+  //             ),
+  //           ],
+  //         ],
+  //       ),
+  //     ),
+  //   );
+  // }
 
   Widget _buildStatItem(String label, String value, IconData icon, Color color) {
     return Column(
@@ -450,7 +450,7 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Usage History (Last 7 Days)',
+              'Usage History',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
