@@ -23,6 +23,7 @@ import '../screens/profile/settings_screen.dart';
 import '../screens/home/statistics_screen.dart';
 import '../screens/usage/log_usage_screen.dart';
 import '../screens/usage/usage_history_screen.dart';
+import '../screens/sync/pending_sync_screen.dart';
 
 class AppRoutes {
   static const String splash = '/';
@@ -47,6 +48,7 @@ class AppRoutes {
   static const String statistics = '/statistics';
   static const String logUsage = '/log-usage';
   static const String usageHistory = '/usage-history';
+  static const String pendingSync = '/pending-sync';
 
   static Map<String, WidgetBuilder> get routes => {
         splash: (context) => const SplashScreen(),
@@ -83,5 +85,6 @@ class AppRoutes {
           final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
           return UsageHistoryScreen(tractorId: args['tractor_id']);
         },
+        pendingSync: (context) => const PendingSyncScreen(),
       };
 }

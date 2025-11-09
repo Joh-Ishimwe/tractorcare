@@ -11,12 +11,13 @@ import logging
 from app.core.config import get_settings
 from app.core.database import Database
 from app.routes import usage_tracking
-from app.middleware.security import SecurityHeadersMiddleware
-from app.middleware.performance import (
-    RateLimitMiddleware, 
-    ResponseCacheMiddleware, 
-    RequestTimingMiddleware
-)
+# Temporarily commented out middleware imports to fix Swagger UI
+# from app.middleware.security import SecurityHeadersMiddleware
+# from app.middleware.performance import (
+#     RateLimitMiddleware, 
+#     ResponseCacheMiddleware, 
+#     RequestTimingMiddleware
+# )
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,7 +53,16 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
-    openapi_url="/openapi.json"
+    openapi_url="/openapi.json",
+    swagger_ui_parameters={
+        "deepLinking": True,
+        "displayRequestDuration": True,
+        "docExpansion": "none",
+        "operationsSorter": "method",
+        "filter": True,
+        "showMutatedRequest": True,
+        "tryItOutEnabled": True
+    }
 )
 
 # Add CORS middleware with proper configuration
@@ -88,25 +98,12 @@ app.add_middleware(
     max_age=86400,  # 24 hours preflight cache
 )
 
-# Add security headers after CORS
-app.add_middleware(SecurityHeadersMiddleware)
-
-# Add performance middleware
-app.add_middleware(RequestTimingMiddleware)
-
-# Add rate limiting (but not in development to avoid testing issues)
-if settings.ENVIRONMENT == "production":
-    app.add_middleware(
-        RateLimitMiddleware, 
-        requests_per_minute=100,  # More generous for production
-        requests_per_hour=2000
-    )
-
-# Add response caching for public endpoints
-app.add_middleware(
-    ResponseCacheMiddleware,
-    cache_ttl_seconds=300  # 5 minutes cache
-)
+# Temporarily removed all other middleware to fix Swagger UI
+# TODO: Re-add performance middleware after fixing docs
+# app.add_middleware(SecurityHeadersMiddleware)
+# app.add_middleware(RequestTimingMiddleware)
+# app.add_middleware(RateLimitMiddleware)
+# app.add_middleware(ResponseCacheMiddleware)
 
 
 @app.exception_handler(Exception)
@@ -161,6 +158,58 @@ async def root():
     }
 
 
+from fastapi.responses import HTMLResponse
+
+@app.get("/swagger", response_class=HTMLResponse)
+async def custom_swagger_ui():
+    """Custom Swagger UI route as backup"""
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>TractorCare API - Swagger UI</title>
+        <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@4.15.5/swagger-ui.css" />
+        <style>
+            html {{
+                box-sizing: border-box;
+                overflow: -moz-scrollbars-vertical;
+                overflow-y: scroll;
+            }}
+            *, *:before, *:after {{
+                box-sizing: inherit;
+            }}
+            body {{
+                margin:0;
+                background: #fafafa;
+            }}
+        </style>
+    </head>
+    <body>
+        <div id="swagger-ui"></div>
+        <script src="https://unpkg.com/swagger-ui-dist@4.15.5/swagger-ui-bundle.js"></script>
+        <script src="https://unpkg.com/swagger-ui-dist@4.15.5/swagger-ui-standalone-preset.js"></script>
+        <script>
+            window.onload = function() {{
+                const ui = SwaggerUIBundle({{
+                    url: '/openapi.json',
+                    dom_id: '#swagger-ui',
+                    deepLinking: true,
+                    presets: [
+                        SwaggerUIBundle.presets.apis,
+                        SwaggerUIStandalonePreset
+                    ],
+                    plugins: [
+                        SwaggerUIBundle.plugins.DownloadUrl
+                    ],
+                    layout: "StandaloneLayout"
+                }});
+            }};
+        </script>
+    </body>
+    </html>
+    """
+
+
 from app.routes import auth, tractors, maintenance, audio, statistics, baseline, demo
 
 app.include_router(
@@ -211,7 +260,7 @@ app.include_router(
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
-        "main:app",
+        "app.main:app",
         host="0.0.0.0",
         port=8000,
         reload=settings.DEBUG

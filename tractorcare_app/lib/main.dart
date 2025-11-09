@@ -9,6 +9,7 @@ import 'config/app_config.dart';
 import 'providers/auth_provider.dart';
 import 'providers/tractor_provider.dart';
 import 'providers/audio_provider.dart';
+import 'services/offline_sync_service.dart';
 
 void main() {
   // Initialize app with API status logging
@@ -26,6 +27,9 @@ class TractorCareApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => TractorProvider()),
         ChangeNotifierProvider(create: (_) => AudioProvider()),
+        ChangeNotifierProvider(
+          create: (_) => OfflineSyncService()..initialize(),
+        ),
       ],
       child: MaterialApp(
         title: 'TractorCare',

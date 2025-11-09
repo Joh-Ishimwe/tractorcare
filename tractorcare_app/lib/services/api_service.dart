@@ -1166,6 +1166,88 @@ class ApiService {
       rethrow;
     }
   }
+
+  // ==================== USAGE LOG METHODS ====================
+
+  Future<Map<String, dynamic>> addUsageLog(String tractorId, Map<String, dynamic> usageData) async {
+    await ensureTokenLoaded();
+    AppConfig.log('📝 Adding usage log for tractor: $tractorId');
+
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/tractors/$tractorId/usage'),
+        headers: _getHeaders(),
+        body: json.encode(usageData),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = json.decode(response.body);
+        AppConfig.log('✅ Usage log added successfully');
+        return data;
+      } else {
+        AppConfig.logError('❌ Failed to add usage log', 'Status: ${response.statusCode}');
+        throw ApiException('Failed to add usage log: ${response.body}', response.statusCode);
+      }
+    } catch (e) {
+      AppConfig.logError('❌ Usage log API error', e);
+      rethrow;
+    }
+  }
+
+  // ==================== MAINTENANCE RECORD METHODS ====================
+
+  Future<Map<String, dynamic>> addMaintenanceRecord(String tractorId, Map<String, dynamic> maintenanceData) async {
+    await ensureTokenLoaded();
+    AppConfig.log('🔧 Adding maintenance record for tractor: $tractorId');
+
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/maintenance'),
+        headers: _getHeaders(),
+        body: json.encode({
+          'tractor_id': tractorId,
+          ...maintenanceData,
+        }),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = json.decode(response.body);
+        AppConfig.log('✅ Maintenance record added successfully');
+        return data;
+      } else {
+        AppConfig.logError('❌ Failed to add maintenance record', 'Status: ${response.statusCode}');
+        throw ApiException('Failed to add maintenance record: ${response.body}', response.statusCode);
+      }
+    } catch (e) {
+      AppConfig.logError('❌ Maintenance record API error', e);
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> updateMaintenanceRecord(String maintenanceId, Map<String, dynamic> updates) async {
+    await ensureTokenLoaded();
+    AppConfig.log('🔧 Updating maintenance record: $maintenanceId');
+
+    try {
+      final response = await http.patch(
+        Uri.parse('$baseUrl/maintenance/$maintenanceId'),
+        headers: _getHeaders(),
+        body: json.encode(updates),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        AppConfig.log('✅ Maintenance record updated successfully');
+        return data;
+      } else {
+        AppConfig.logError('❌ Failed to update maintenance record', 'Status: ${response.statusCode}');
+        throw ApiException('Failed to update maintenance record: ${response.body}', response.statusCode);
+      }
+    } catch (e) {
+      AppConfig.logError('❌ Maintenance update API error', e);
+      rethrow;
+    }
+  }
 }
 
 class ApiException implements Exception {

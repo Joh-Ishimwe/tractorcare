@@ -4,9 +4,13 @@ import 'package:flutter/material.dart';
 import '../models/tractor.dart';
 import '../models/audio_prediction.dart';
 import '../services/api_service.dart';
+import '../services/storage_service.dart';
+import '../services/offline_sync_service.dart';
 
 class TractorProvider with ChangeNotifier {
   final ApiService _api = ApiService(); // Now using singleton
+  final StorageService _storage = StorageService();
+  final OfflineSyncService _offlineSync = OfflineSyncService();
 
   List<Tractor> _tractors = [];
   Tractor? _selectedTractor;
@@ -14,34 +18,64 @@ class TractorProvider with ChangeNotifier {
   String? _error;
   
   // Store recent predictions for each tractor
-  Map<String, List<AudioPrediction>> _recentPredictions = {};
+  final Map<String, List<AudioPrediction>> _recentPredictions = {};
 
   List<Tractor> get tractors => _tractors;
   Tractor? get selectedTractor => _selectedTractor;
   bool get isLoading => _isLoading;
   String? get error => _error;
 
-  // Fetch all tractors
+  // Fetch all tractors with offline support
   Future<void> fetchTractors() async {
     _setLoading(true);
     _clearError();
 
     try {
-      _tractors = await _api.getTractors();
+      if (_offlineSync.isOnline) {
+        // Fetch from API and cache offline
+        _tractors = await _api.getTractors();
+        await _storage.saveTractorsOffline(_tractors);
+      } else {
+        // Load from offline storage
+        _tractors = await _storage.getTractorsOffline();
+        if (_tractors.isEmpty) {
+          throw Exception('No offline data available. Please connect to internet.');
+        }
+      }
       _setLoading(false);
     } catch (e) {
-      _setError(e.toString());
+      // Fallback to offline data if API fails
+      try {
+        _tractors = await _storage.getTractorsOffline();
+        if (_tractors.isNotEmpty) {
+          _setError('Showing offline data. ${e.toString()}');
+        } else {
+          _setError(e.toString());
+        }
+      } catch (offlineError) {
+        _setError(e.toString());
+      }
       _setLoading(false);
     }
   }
 
-  // Get single tractor
+  // Get single tractor with offline support
   Future<void> getTractor(String tractorId) async {
     _setLoading(true);
     _clearError();
 
     try {
-      _selectedTractor = await _api.getTractor(tractorId);
+      if (_offlineSync.isOnline) {
+        // Fetch from API
+        _selectedTractor = await _api.getTractor(tractorId);
+      } else {
+        // Find in offline tractors
+        final offlineTractors = await _storage.getTractorsOffline();
+        _selectedTractor = offlineTractors.firstWhere(
+          (tractor) => tractor.tractorId == tractorId,
+          orElse: () => throw Exception('Tractor not found in offline data'),
+        );
+      }
       _setLoading(false);
     } catch (e) {
       _setError(e.toString());
@@ -56,13 +90,27 @@ class TractorProvider with ChangeNotifier {
       
       for (final tractor in _tractors) {
         try {
-          // Get the most recent predictions for each tractor
-          final predictions = await _api.getPredictions(tractor.tractorId);
+          List<AudioPrediction> predictions;
+          if (_offlineSync.isOnline) {
+            // Get the most recent predictions from API and cache them
+            predictions = await _api.getPredictions(tractor.tractorId);
+            await _storage.savePredictionsOffline(predictions);
+          } else {
+            // Load from offline storage
+            predictions = await _storage.getPredictionsOffline();
+            predictions = predictions.where((p) => p.tractorId == tractor.tractorId).toList();
+          }
           _recentPredictions[tractor.tractorId] = predictions;
         } catch (e) {
-          // If we can't load predictions for a tractor, continue with others
-          print('Failed to load predictions for tractor ${tractor.tractorId}: $e');
-          _recentPredictions[tractor.tractorId] = [];
+          // If we can't load predictions for a tractor, try offline data
+          try {
+            final offlinePredictions = await _storage.getPredictionsOffline();
+            final tractorPredictions = offlinePredictions.where((p) => p.tractorId == tractor.tractorId).toList();
+            _recentPredictions[tractor.tractorId] = tractorPredictions;
+          } catch (offlineError) {
+            print('Failed to load predictions for tractor ${tractor.tractorId}: $e');
+            _recentPredictions[tractor.tractorId] = [];
+          }
         }
       }
       notifyListeners();
@@ -290,6 +338,135 @@ class TractorProvider with ChangeNotifier {
         break;
     }
     notifyListeners();
+  }
+
+  // ==================== OFFLINE EDITING ====================
+
+  // Add usage log with offline support
+  Future<void> addUsageLog(String tractorId, Map<String, dynamic> usageData) async {
+    try {
+      if (_offlineSync.isOnline) {
+        // Online: Submit directly to API
+        await _api.addUsageLog(tractorId, usageData);
+      } else {
+        // Offline: Store for later sync
+        await _addPendingChange({
+          'type': 'usage_log',
+          'tractorId': tractorId,
+          'data': usageData,
+          'timestamp': DateTime.now().toIso8601String(),
+        });
+      }
+      
+      // Update local tractor data if available
+      if (_selectedTractor?.tractorId == tractorId) {
+        // Update local usage stats
+        _selectedTractor = _selectedTractor!.copyWith(
+          engineHours: (_selectedTractor!.engineHours) + (usageData['hours'] as double? ?? 0),
+        );
+        notifyListeners();
+      }
+      
+    } catch (e) {
+      if (_offlineSync.isOnline) {
+        // Failed online, save for offline sync
+        await _addPendingChange({
+          'type': 'usage_log',
+          'tractorId': tractorId,
+          'data': usageData,
+          'timestamp': DateTime.now().toIso8601String(),
+        });
+      }
+      throw e;
+    }
+  }
+
+  // Update maintenance record with offline support
+  Future<void> updateMaintenanceRecord(String tractorId, String maintenanceId, Map<String, dynamic> updates) async {
+    try {
+      if (_offlineSync.isOnline) {
+        // Online: Update directly via API
+        await _api.updateMaintenanceRecord(maintenanceId, updates);
+      } else {
+        // Offline: Store for later sync
+        await _addPendingChange({
+          'type': 'maintenance_update',
+          'tractorId': tractorId,
+          'maintenanceId': maintenanceId,
+          'data': updates,
+          'timestamp': DateTime.now().toIso8601String(),
+        });
+      }
+      
+      notifyListeners();
+      
+    } catch (e) {
+      if (_offlineSync.isOnline) {
+        // Failed online, save for offline sync
+        await _addPendingChange({
+          'type': 'maintenance_update',
+          'tractorId': tractorId,
+          'maintenanceId': maintenanceId,
+          'data': updates,
+          'timestamp': DateTime.now().toIso8601String(),
+        });
+      }
+      throw e;
+    }
+  }
+
+  // Add maintenance record with offline support
+  Future<void> addMaintenanceRecord(String tractorId, Map<String, dynamic> maintenanceData) async {
+    try {
+      if (_offlineSync.isOnline) {
+        // Online: Submit directly to API
+        await _api.addMaintenanceRecord(tractorId, maintenanceData);
+      } else {
+        // Offline: Store for later sync
+        await _addPendingChange({
+          'type': 'maintenance_add',
+          'tractorId': tractorId,
+          'data': maintenanceData,
+          'timestamp': DateTime.now().toIso8601String(),
+        });
+      }
+      
+      notifyListeners();
+      
+    } catch (e) {
+      if (_offlineSync.isOnline) {
+        // Failed online, save for offline sync
+        await _addPendingChange({
+          'type': 'maintenance_add',
+          'tractorId': tractorId,
+          'data': maintenanceData,
+          'timestamp': DateTime.now().toIso8601String(),
+        });
+      }
+      throw e;
+    }
+  }
+
+  // Helper method to add pending changes
+  Future<void> _addPendingChange(Map<String, dynamic> change) async {
+    final pendingItems = await _storage.getPendingSyncItems();
+    pendingItems.add(change);
+    await _storage.savePendingSyncItems(pendingItems);
+  }
+
+  // Get offline edits for display
+  Future<List<Map<String, dynamic>>> getPendingEdits() async {
+    return await _storage.getPendingSyncItems();
+  }
+
+  // Clear specific pending edit (for manual resolution)
+  Future<void> clearPendingEdit(int index) async {
+    final pendingItems = await _storage.getPendingSyncItems();
+    if (index < pendingItems.length) {
+      pendingItems.removeAt(index);
+      await _storage.savePendingSyncItems(pendingItems);
+      notifyListeners();
+    }
   }
 
   // Helper methods

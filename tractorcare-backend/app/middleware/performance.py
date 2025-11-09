@@ -5,29 +5,32 @@ Implements rate limiting, caching, and request optimization
 
 from fastapi import Request, HTTPException, status
 from fastapi.responses import Response
+from starlette.middleware.base import BaseHTTPMiddleware
 import time
 import json
 import hashlib
-from typing import Dict, Optional
+from typing import Dict, Optional, Callable
 import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
-class RateLimitMiddleware:
+class RateLimitMiddleware(BaseHTTPMiddleware):
     """Simple in-memory rate limiting middleware"""
     
     def __init__(
         self,
+        app,
         requests_per_minute: int = 60,
         requests_per_hour: int = 1000
     ):
+        super().__init__(app)
         self.requests_per_minute = requests_per_minute
         self.requests_per_hour = requests_per_hour
         self.requests: Dict[str, list] = defaultdict(list)
     
-    async def __call__(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next: Callable):
         # Get client IP
         client_ip = self._get_client_ip(request)
         
@@ -39,10 +42,10 @@ class RateLimitMiddleware:
         
         # Check limits
         if self._is_rate_limited(client_ip, current_time):
-            raise HTTPException(
+            return Response(
+                content='{"detail":"Rate limit exceeded. Please try again later."}',
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Rate limit exceeded. Please try again later.",
-                headers={"Retry-After": "60"}
+                headers={"Retry-After": "60", "Content-Type": "application/json"}
             )
         
         # Add current request
@@ -107,14 +110,15 @@ class RateLimitMiddleware:
         return requests_last_hour >= self.requests_per_hour
 
 
-class ResponseCacheMiddleware:
+class ResponseCacheMiddleware(BaseHTTPMiddleware):
     """Simple in-memory response caching middleware"""
     
-    def __init__(self, cache_ttl_seconds: int = 300):
+    def __init__(self, app, cache_ttl_seconds: int = 300):
+        super().__init__(app)
         self.cache_ttl = cache_ttl_seconds
         self.cache: Dict[str, dict] = {}
     
-    async def __call__(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next: Callable):
         # Only cache GET requests
         if request.method != "GET":
             return await call_next(request)
@@ -122,6 +126,10 @@ class ResponseCacheMiddleware:
         # Don't cache authenticated endpoints (for security)
         auth_header = request.headers.get("Authorization")
         if auth_header:
+            return await call_next(request)
+        
+        # Don't cache certain paths
+        if request.url.path.startswith(("/docs", "/openapi.json", "/redoc")):
             return await call_next(request)
         
         # Generate cache key
@@ -171,10 +179,12 @@ class ResponseCacheMiddleware:
     async def _cache_response(self, cache_key: str, response: Response):
         """Cache response data"""
         try:
-            # Read response body
-            body = b""
-            async for chunk in response.body_iterator:
-                body += chunk
+            # Read response body if it exists
+            if hasattr(response, 'body'):
+                body = response.body
+            else:
+                # For streaming responses, we can't easily cache
+                return
             
             # Store in cache
             self.cache[cache_key] = {
@@ -184,9 +194,6 @@ class ResponseCacheMiddleware:
                 "media_type": response.media_type,
                 "expires_at": time.time() + self.cache_ttl
             }
-            
-            # Recreate response body iterator
-            response.body_iterator = iter([body])
             
             # Cleanup old cache entries (keep cache size manageable)
             self._cleanup_cache()
@@ -217,10 +224,10 @@ class ResponseCacheMiddleware:
                 del self.cache[key]
 
 
-class RequestTimingMiddleware:
+class RequestTimingMiddleware(BaseHTTPMiddleware):
     """Middleware to add request timing headers"""
     
-    async def __call__(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next: Callable):
         start_time = time.time()
         
         response = await call_next(request)

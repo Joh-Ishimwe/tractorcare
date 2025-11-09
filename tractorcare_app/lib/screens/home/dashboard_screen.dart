@@ -13,6 +13,7 @@ import '../../widgets/api_connection_test.dart';
 import '../../widgets/auth_debug_widget.dart';
 import '../../widgets/debug_api_widget.dart';
 import '../../widgets/custom_app_bar.dart';
+import '../../widgets/connection_status_widget.dart';
 import '../../services/api_service.dart';
 import '../../models/maintenance.dart';
 import '../../models/tractor_summary.dart';
@@ -269,7 +270,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                   );
                 },
               ),
-            )).toList(),
+            )),
             const SizedBox(height: 20),
           ],
         ),
@@ -328,6 +329,8 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Connection status widget
+              const ConnectionStatusWidget(),
               _buildApiStatus(),
               if (AppConfig.debugMode) const ApiConnectionTest(),
               if (AppConfig.debugMode) const AuthDebugWidget(),
