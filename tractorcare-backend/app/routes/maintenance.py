@@ -5,6 +5,7 @@ Maintenance Management Routes
 from fastapi import APIRouter, HTTPException, status, Depends
 from typing import List
 from datetime import datetime
+import logging
 from app.schemas import (
     MaintenanceRecordCreate,
     MaintenanceRecordResponse,
@@ -21,6 +22,7 @@ from app.models import (
 )
 from app.core.security import get_current_user
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -145,37 +147,60 @@ async def get_alerts(
     current_user: User = Depends(get_current_user)
 ):
     """Get maintenance alerts for tractor"""
-    # Verify ownership
-    tractor = await Tractor.find_one({
-        "tractor_id": tractor_id.upper(),
-        "owner_id": str(current_user.id)
-    })
-    
-    if not tractor:
+    try:
+        # Verify ownership
+        tractor = await Tractor.find_one({
+            "tractor_id": tractor_id.upper(),
+            "owner_id": str(current_user.id)
+        })
+        
+        if not tractor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Tractor {tractor_id} not found or access denied"
+            )
+        
+        # Get alerts with error handling
+        try:
+            alerts = await MaintenanceAlert.find(
+                {"tractor_id": tractor.tractor_id}
+            ).sort("+due_date").to_list()
+        except Exception as e:
+            logger.error(f"Database error fetching alerts for {tractor_id}: {str(e)}")
+            # Return empty list if database error, don't fail completely
+            alerts = []
+        
+        # Convert to response format with safe attribute access
+        alert_responses = []
+        for alert in alerts:
+            try:
+                alert_response = MaintenanceAlertResponse(
+                    id=str(alert.id) if hasattr(alert, 'id') and alert.id else "pending",
+                    tractor_id=alert.tractor_id,
+                    alert_type=getattr(alert, 'alert_type', None),
+                    priority=getattr(alert, 'priority', None),
+                    status=getattr(alert, 'status', None),
+                    task_name=getattr(alert, 'task_name', ''),
+                    description=getattr(alert, 'description', ''),
+                    estimated_time_minutes=getattr(alert, 'estimated_time_minutes', 0),
+                    source=getattr(alert, 'source', ''),
+                    due_date=getattr(alert, 'due_date', None),
+                    created_at=getattr(alert, 'created_at', None),
+                    audio_anomaly_score=getattr(alert, 'audio_anomaly_score', None)
+                )
+                alert_responses.append(alert_response)
+            except Exception as e:
+                logger.warning(f"Skipping invalid alert for {tractor_id}: {str(e)}")
+                continue
+        
+        return alert_responses
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions (like 404)
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in get_alerts for {tractor_id}: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tractor not found"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve maintenance alerts"
         )
-    
-    # Get alerts
-    alerts = await MaintenanceAlert.find(
-        {"tractor_id": tractor.tractor_id}
-    ).sort("+due_date").to_list()
-    
-    return [
-        MaintenanceAlertResponse(
-            id=str(a.id),
-            tractor_id=a.tractor_id,
-            alert_type=a.alert_type,
-            priority=a.priority,
-            status=a.status,
-            task_name=a.task_name,
-            description=a.description,
-            estimated_time_minutes=a.estimated_time_minutes,
-            source=a.source,
-            due_date=a.due_date,
-            created_at=a.created_at,
-            audio_anomaly_score=a.audio_anomaly_score
-        )
-        for a in alerts
-    ]
