@@ -1,8 +1,6 @@
 ﻿import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-// Only import dart:io on non-web platforms  
-import 'dart:io' if (dart.library.html) 'dart:html';
 import '../config/app_config.dart';
 import '../models/tractor.dart';
 import '../models/tractor_summary.dart';

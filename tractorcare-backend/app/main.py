@@ -12,6 +12,11 @@ from app.core.config import get_settings
 from app.core.database import Database
 from app.routes import usage_tracking
 from app.middleware.security import SecurityHeadersMiddleware
+from app.middleware.performance import (
+    RateLimitMiddleware, 
+    ResponseCacheMiddleware, 
+    RequestTimingMiddleware
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -50,22 +55,58 @@ app = FastAPI(
     openapi_url="/openapi.json"
 )
 
-# Add CORS middleware first (before security middleware)
+# Add CORS middleware with proper configuration
 allowed_origins = settings.allowed_origins_list
 logger.info(f"🌐 Allowed CORS origins: {allowed_origins}")
 
+# More permissive CORS for development, restrictive for production
+if settings.ENVIRONMENT == "production":
+    cors_origins = allowed_origins
+else:
+    cors_origins = ["*"]  # Allow all in development
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for now
+    allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
-    expose_headers=["Content-Type", "Authorization"],
-    max_age=86400,  # 24 hours
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=[
+        "Accept",
+        "Accept-Language", 
+        "Content-Language",
+        "Content-Type",
+        "Authorization",
+        "X-Requested-With",
+        "X-CSRF-Token"
+    ],
+    expose_headers=[
+        "Content-Type", 
+        "Authorization",
+        "X-Total-Count",
+        "X-Request-ID"
+    ],
+    max_age=86400,  # 24 hours preflight cache
 )
 
 # Add security headers after CORS
 app.add_middleware(SecurityHeadersMiddleware)
+
+# Add performance middleware
+app.add_middleware(RequestTimingMiddleware)
+
+# Add rate limiting (but not in development to avoid testing issues)
+if settings.ENVIRONMENT == "production":
+    app.add_middleware(
+        RateLimitMiddleware, 
+        requests_per_minute=100,  # More generous for production
+        requests_per_hour=2000
+    )
+
+# Add response caching for public endpoints
+app.add_middleware(
+    ResponseCacheMiddleware,
+    cache_ttl_seconds=300  # 5 minutes cache
+)
 
 
 @app.exception_handler(Exception)

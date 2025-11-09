@@ -418,30 +418,6 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
   //   );
   // }
 
-  Widget _buildStatItem(String label, String value, IconData icon, Color color) {
-    return Column(
-      children: [
-        Icon(icon, color: color, size: 24),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
-        ),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 12,
-            color: AppColors.textSecondary,
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget _buildUsageHistoryCard() {
     return Card(
       child: Padding(
@@ -472,7 +448,7 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
                 ),
               )
             else
-              ...usageHistory.map((usage) => _buildUsageHistoryItem(usage)).toList(),
+              ...usageHistory.map((usage) => _buildUsageHistoryItem(usage)),
           ],
         ),
       ),

@@ -3,12 +3,23 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user.dart';
+import '../models/tractor.dart';
+import '../models/audio_prediction.dart';
+import '../models/maintenance.dart';
 import '../config/app_config.dart';
 
 class StorageService {
   static const String _keyToken = AppConfig.tokenKey;
   static const String _keyUser = AppConfig.userKey;
   static const String _keyOnboarding = 'onboarding_complete';
+  
+  // Offline data keys
+  static const String _keyTractors = 'offline_tractors';
+  static const String _keyPredictions = 'offline_predictions';
+  static const String _keyMaintenanceRecords = 'offline_maintenance_records';
+  static const String _keyUsageLogs = 'offline_usage_logs';
+  static const String _keyPendingSync = 'pending_sync_items';
+  static const String _keyLastSync = 'last_sync_timestamp';
 
   // Get SharedPreferences instance
   Future<SharedPreferences> get _prefs async =>
@@ -170,6 +181,174 @@ class StorageService {
       print('Error parsing cached data: $e');
       return null;
     }
+  }
+
+  // ==================== OFFLINE DATA MANAGEMENT ====================
+
+  // Tractors
+  Future<void> saveTractorsOffline(List<Tractor> tractors) async {
+    final prefs = await _prefs;
+    final tractorsJson = tractors.map((t) => t.toJson()).toList();
+    await prefs.setString(_keyTractors, json.encode(tractorsJson));
+  }
+
+  Future<List<Tractor>> getTractorsOffline() async {
+    final prefs = await _prefs;
+    final tractorsJson = prefs.getString(_keyTractors);
+    
+    if (tractorsJson == null) return [];
+    
+    try {
+      final List<dynamic> tractorsList = json.decode(tractorsJson);
+      return tractorsList.map((json) => Tractor.fromJson(json)).toList();
+    } catch (e) {
+      print('Error loading offline tractors: $e');
+      return [];
+    }
+  }
+
+  // Audio Predictions
+  Future<void> savePredictionsOffline(List<AudioPrediction> predictions) async {
+    final prefs = await _prefs;
+    final predictionsJson = predictions.map((p) => p.toJson()).toList();
+    await prefs.setString(_keyPredictions, json.encode(predictionsJson));
+  }
+
+  Future<List<AudioPrediction>> getPredictionsOffline() async {
+    final prefs = await _prefs;
+    final predictionsJson = prefs.getString(_keyPredictions);
+    
+    if (predictionsJson == null) return [];
+    
+    try {
+      final List<dynamic> predictionsList = json.decode(predictionsJson);
+      return predictionsList.map((json) => AudioPrediction.fromJson(json)).toList();
+    } catch (e) {
+      print('Error loading offline predictions: $e');
+      return [];
+    }
+  }
+
+  // Maintenance Records
+  Future<void> saveMaintenanceRecordsOffline(List<Maintenance> records) async {
+    final prefs = await _prefs;
+    final recordsJson = records.map((r) => r.toJson()).toList();
+    await prefs.setString(_keyMaintenanceRecords, json.encode(recordsJson));
+  }
+
+  Future<List<Maintenance>> getMaintenanceRecordsOffline() async {
+    final prefs = await _prefs;
+    final recordsJson = prefs.getString(_keyMaintenanceRecords);
+    
+    if (recordsJson == null) return [];
+    
+    try {
+      final List<dynamic> recordsList = json.decode(recordsJson);
+      return recordsList.map((json) => Maintenance.fromJson(json)).toList();
+    } catch (e) {
+      print('Error loading offline maintenance records: $e');
+      return [];
+    }
+  }
+
+  // Usage Logs
+  Future<void> saveUsageLogsOffline(List<Map<String, dynamic>> usageLogs) async {
+    final prefs = await _prefs;
+    await prefs.setString(_keyUsageLogs, json.encode(usageLogs));
+  }
+
+  Future<List<Map<String, dynamic>>> getUsageLogsOffline() async {
+    final prefs = await _prefs;
+    final logsJson = prefs.getString(_keyUsageLogs);
+    
+    if (logsJson == null) return [];
+    
+    try {
+      final List<dynamic> logsList = json.decode(logsJson);
+      return logsList.cast<Map<String, dynamic>>();
+    } catch (e) {
+      print('Error loading offline usage logs: $e');
+      return [];
+    }
+  }
+
+  // ==================== PENDING SYNC MANAGEMENT ====================
+
+  Future<void> addPendingSyncItem(Map<String, dynamic> item) async {
+    final pendingItems = await getPendingSyncItems();
+    
+    // Add timestamp and unique ID
+    item['pending_sync_id'] = DateTime.now().millisecondsSinceEpoch.toString();
+    item['created_at'] = DateTime.now().toIso8601String();
+    
+    pendingItems.add(item);
+    
+    final prefs = await _prefs;
+    await prefs.setString(_keyPendingSync, json.encode(pendingItems));
+  }
+
+  Future<List<Map<String, dynamic>>> getPendingSyncItems() async {
+    final prefs = await _prefs;
+    final pendingJson = prefs.getString(_keyPendingSync);
+    
+    if (pendingJson == null) return [];
+    
+    try {
+      final List<dynamic> pendingList = json.decode(pendingJson);
+      return pendingList.cast<Map<String, dynamic>>();
+    } catch (e) {
+      print('Error loading pending sync items: $e');
+      return [];
+    }
+  }
+
+  Future<void> removePendingSyncItem(String syncId) async {
+    final pendingItems = await getPendingSyncItems();
+    pendingItems.removeWhere((item) => item['pending_sync_id'] == syncId);
+    
+    final prefs = await _prefs;
+    await prefs.setString(_keyPendingSync, json.encode(pendingItems));
+  }
+
+  Future<void> clearPendingSyncItems() async {
+    final prefs = await _prefs;
+    await prefs.remove(_keyPendingSync);
+  }
+
+  // ==================== SYNC TIMESTAMP ====================
+
+  Future<void> updateLastSyncTimestamp() async {
+    final prefs = await _prefs;
+    await prefs.setString(_keyLastSync, DateTime.now().toIso8601String());
+  }
+
+  Future<DateTime?> getLastSyncTimestamp() async {
+    final prefs = await _prefs;
+    final timestampStr = prefs.getString(_keyLastSync);
+    
+    if (timestampStr == null) return null;
+    
+    try {
+      return DateTime.parse(timestampStr);
+    } catch (e) {
+      print('Error parsing last sync timestamp: $e');
+      return null;
+    }
+  }
+
+  // ==================== OFFLINE STATUS ====================
+
+  Future<void> setOfflineMode(bool isOffline) async {
+    await setBool('offline_mode', isOffline);
+  }
+
+  Future<bool> isOfflineMode() async {
+    return await getBool('offline_mode') ?? false;
+  }
+
+  Future<bool> hasPendingChanges() async {
+    final pendingItems = await getPendingSyncItems();
+    return pendingItems.isNotEmpty;
   }
 
   Future<void> clearCache() async {
