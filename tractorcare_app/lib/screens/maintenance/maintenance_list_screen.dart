@@ -59,10 +59,16 @@ class _MaintenanceListScreenState extends State<MaintenanceListScreen>
     setState(() => _isLoading = true);
 
     try {
-      final upcoming = await _api.getMaintenance(
-        _selectedTractorId!,
-        completed: false,
-      );
+      // Fetch upcoming maintenance alerts (not records)
+      final upcomingAlertsData = await _api.getMaintenanceAlerts(_selectedTractorId!);
+      
+      // Convert alerts to Maintenance objects for upcoming tasks
+      final upcoming = upcomingAlertsData
+          .where((alert) => alert['status'] != 'completed')
+          .map((alert) => _convertAlertToMaintenance(alert))
+          .toList();
+      
+      // Fetch completed maintenance records
       final completed = await _api.getMaintenance(
         _selectedTractorId!,
         completed: true,
@@ -87,6 +93,48 @@ class _MaintenanceListScreenState extends State<MaintenanceListScreen>
           ),
         );
       }
+    }
+  }
+
+  // Convert maintenance alert to Maintenance object
+  Maintenance _convertAlertToMaintenance(Map<String, dynamic> alert) {
+    return Maintenance(
+      id: alert['id'] ?? '',
+      tractorId: alert['tractor_id'] ?? '',
+      userId: 'system', // Default user for alerts
+      type: _mapAlertTypeToMaintenanceType(alert['alert_type']),
+      customType: alert['task_name']?.replaceAll('_', ' ')?.toUpperCase(),
+      dueDate: DateTime.tryParse(alert['due_date'] ?? '') ?? DateTime.now(),
+      status: _mapAlertStatusToMaintenanceStatus(alert['status']),
+      estimatedCost: null,
+      notes: '${alert['description'] ?? ''}\n\nSource: ${alert['source'] ?? ''}\n${alert['cost_note'] ?? ''}',
+      createdAt: DateTime.tryParse(alert['created_at'] ?? '') ?? DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+  }
+
+  MaintenanceType _mapAlertTypeToMaintenanceType(String? alertType) {
+    switch (alertType) {
+      case 'routine_overdue':
+      case 'routine_scheduled':
+        return MaintenanceType.service;
+      case 'audio_anomaly':
+        return MaintenanceType.repair;
+      default:
+        return MaintenanceType.other;
+    }
+  }
+
+  MaintenanceStatus _mapAlertStatusToMaintenanceStatus(String? status) {
+    switch (status) {
+      case 'overdue':
+        return MaintenanceStatus.overdue;
+      case 'scheduled':
+        return MaintenanceStatus.upcoming;
+      case 'completed':
+        return MaintenanceStatus.completed;
+      default:
+        return MaintenanceStatus.upcoming;
     }
   }
 
