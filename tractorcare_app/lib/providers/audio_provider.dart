@@ -2,11 +2,13 @@ import 'package:flutter/foundation.dart';
 import '../models/audio_prediction.dart';
 import '../services/api_service.dart';
 import '../services/audio_service.dart';
+import 'tractor_provider.dart';
 import 'dart:io';                     // <-- normal import (ignored on web)
 
 class AudioProvider with ChangeNotifier {
   final ApiService _api = ApiService();
   final AudioService _audioService = AudioService();
+  TractorProvider? _tractorProvider;
 
   List<AudioPrediction> _predictions = [];
   AudioPrediction? _currentPrediction;
@@ -21,6 +23,11 @@ class AudioProvider with ChangeNotifier {
   bool get isRecording => _isRecording;
   int get recordingDuration => _recordingDuration;
   String? get error => _error;
+
+  // Set the tractor provider for critical status updates
+  void setTractorProvider(TractorProvider tractorProvider) {
+    _tractorProvider = tractorProvider;
+  }
 
   // -----------------------------------------------------------------
   // Fetch predictions
@@ -65,6 +72,12 @@ class AudioProvider with ChangeNotifier {
         );
         _currentPrediction = prediction;
         _predictions.insert(0, prediction);
+        
+        // Notify TractorProvider about new prediction for real-time critical status updates
+        if (_tractorProvider != null) {
+          _tractorProvider!.addNewPrediction(tractorId, prediction);
+        }
+        
         _setLoading(false);
         return prediction;
       }
@@ -84,6 +97,12 @@ class AudioProvider with ChangeNotifier {
       );
       _currentPrediction = prediction;
       _predictions.insert(0, prediction);
+      
+      // Notify TractorProvider about new prediction for real-time critical status updates
+      if (_tractorProvider != null) {
+        _tractorProvider!.addNewPrediction(tractorId, prediction);
+      }
+      
       _setLoading(false);
       return prediction;
     } catch (e) {
@@ -113,6 +132,12 @@ class AudioProvider with ChangeNotifier {
       );
       _currentPrediction = prediction;
       _predictions.insert(0, prediction);
+      
+      // Notify TractorProvider about new prediction for real-time critical status updates
+      if (_tractorProvider != null) {
+        _tractorProvider!.addNewPrediction(tractorId, prediction);
+      }
+      
       _setLoading(false);
       return prediction;
     } catch (e) {

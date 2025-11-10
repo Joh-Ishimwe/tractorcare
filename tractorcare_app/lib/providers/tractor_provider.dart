@@ -141,6 +141,26 @@ class TractorProvider with ChangeNotifier {
            mostRecent.anomalyScore > 0.5 && mostRecent.anomalyScore <= 0.8; // Medium anomaly score = warning
   }
 
+  // Add new prediction and update critical status in real-time
+  void addNewPrediction(String tractorId, AudioPrediction prediction) {
+    final currentPredictions = _recentPredictions[tractorId] ?? [];
+    
+    // Add new prediction at the beginning (most recent first)
+    final updatedPredictions = [prediction, ...currentPredictions];
+    
+    // Keep only the last 10 predictions to avoid memory issues
+    if (updatedPredictions.length > 10) {
+      updatedPredictions.removeRange(10, updatedPredictions.length);
+    }
+    
+    _recentPredictions[tractorId] = updatedPredictions;
+    
+    // Notify listeners to update the dashboard critical status immediately
+    notifyListeners();
+    
+    debugPrint('🔔 Updated predictions for $tractorId: ${prediction.predictionClass} (${prediction.anomalyScore})');
+  }
+
   // Create new tractor
   Future<bool> createTractor(Map<String, dynamic> tractorData) async {
     _setLoading(true);
@@ -377,7 +397,7 @@ class TractorProvider with ChangeNotifier {
           'timestamp': DateTime.now().toIso8601String(),
         });
       }
-      throw e;
+      rethrow;
     }
   }
 
@@ -411,7 +431,7 @@ class TractorProvider with ChangeNotifier {
           'timestamp': DateTime.now().toIso8601String(),
         });
       }
-      throw e;
+      rethrow;
     }
   }
 
@@ -443,7 +463,7 @@ class TractorProvider with ChangeNotifier {
           'timestamp': DateTime.now().toIso8601String(),
         });
       }
-      throw e;
+      rethrow;
     }
   }
 

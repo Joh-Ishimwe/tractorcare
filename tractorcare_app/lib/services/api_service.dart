@@ -359,33 +359,42 @@ class ApiService {
         if (completed) {
           return maintenanceList.where((m) => m.status == MaintenanceStatus.completed).toList();
         } else {
-          // For "upcoming" tasks, we'll add some mock upcoming items since backend only has completed records
-          // In a real app, these would come from a separate scheduling system
-          List<Maintenance> upcomingTasks = [
-            Maintenance(
-              id: 'upcoming_001',
-              tractorId: tractorId,
-              userId: 'user_001',
-              type: MaintenanceType.service,
-              customType: 'Oil Change',
-              dueDate: DateTime.now().add(const Duration(days: 30)),
-              notes: 'Regular oil change service due',
-              status: MaintenanceStatus.upcoming,
-              createdAt: DateTime.now(),
-            ),
-            Maintenance(
-              id: 'upcoming_002',
-              tractorId: tractorId,
-              userId: 'user_001',
-              type: MaintenanceType.inspection,
-              customType: 'Annual Inspection',
-              dueDate: DateTime.now().add(const Duration(days: 90)),
-              notes: 'Annual safety inspection',
-              status: MaintenanceStatus.upcoming,
-              createdAt: DateTime.now(),
-            ),
-          ];
-          return upcomingTasks;
+          // For upcoming tasks, fetch from alerts endpoint
+          try {
+            final alertsResponse = await http.get(
+              Uri.parse('$baseUrl/maintenance/$tractorId/alerts'),
+              headers: await _getHeaders(),
+            );
+            
+            if (alertsResponse.statusCode == 200) {
+              final alertsData = jsonDecode(alertsResponse.body);
+              List<Maintenance> upcomingTasks = [];
+              
+              if (alertsData is Map && alertsData['alerts'] is List) {
+                for (var alert in alertsData['alerts']) {
+                  upcomingTasks.add(Maintenance(
+                    id: alert['_id'] ?? 'alert_${DateTime.now().millisecondsSinceEpoch}',
+                    tractorId: tractorId,
+                    userId: alert['user_id'] ?? 'system',
+                    type: _mapAlertTypeToMaintenanceType(alert['alert_type']),
+                    customType: alert['title'] ?? alert['alert_type'] ?? 'Maintenance',
+                    dueDate: DateTime.tryParse(alert['due_date'] ?? '') ?? DateTime.now().add(const Duration(days: 7)),
+                    notes: alert['description'] ?? alert['message'] ?? 'Maintenance required',
+                    status: MaintenanceStatus.upcoming,
+                    createdAt: DateTime.tryParse(alert['created_at'] ?? '') ?? DateTime.now(),
+                  ));
+                }
+              }
+              
+              return upcomingTasks;
+            } else {
+              debugPrint('Failed to fetch alerts: ${alertsResponse.statusCode}');
+              return [];
+            }
+          } catch (e) {
+            debugPrint('Error fetching alerts for upcoming maintenance: $e');
+            return [];
+          }
         }
       } else if (response.statusCode == 404) {
         AppConfig.log('ℹ️ No maintenance records found for tractor $tractorId');
@@ -799,24 +808,6 @@ class ApiService {
     } catch (e) {
       AppConfig.logError('❌ Create maintenance task error', e);
       rethrow;
-    }
-  }
-
-  MaintenanceType _getMaintenanceTypeFromString(String type) {
-    switch (type.toLowerCase()) {
-      case 'oil_change':
-        return MaintenanceType.oilChange;
-      case 'filter_change':
-      case 'filter_replacement':
-        return MaintenanceType.filterReplacement;
-      case 'inspection':
-        return MaintenanceType.inspection;
-      case 'repair':
-        return MaintenanceType.repair;
-      case 'service':
-        return MaintenanceType.service;
-      default:
-        return MaintenanceType.other;
     }
   }
 
@@ -1399,6 +1390,25 @@ class ApiService {
     } catch (e) {
       AppConfig.logError('❌ Maintenance update API error', e);
       rethrow;
+    }
+  }
+
+  // Helper method to map alert types to maintenance types
+  MaintenanceType _mapAlertTypeToMaintenanceType(String? alertType) {
+    switch (alertType?.toLowerCase()) {
+      case 'audio_anomaly':
+      case 'abnormal_sound':
+        return MaintenanceType.repair;
+      case 'oil_change':
+        return MaintenanceType.service;
+      case 'filter_replacement':
+        return MaintenanceType.service;
+      case 'inspection':
+        return MaintenanceType.inspection;
+      case 'service':
+        return MaintenanceType.service;
+      default:
+        return MaintenanceType.service;
     }
   }
 }

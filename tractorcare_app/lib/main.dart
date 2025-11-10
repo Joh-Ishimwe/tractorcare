@@ -29,6 +29,8 @@ class TractorCareApp extends StatefulWidget {
 class _TractorCareAppState extends State<TractorCareApp> {
   late final UsageProvider usageProvider;
   late final MaintenanceProvider maintenanceProvider;
+  late final TractorProvider tractorProvider;
+  late final AudioProvider audioProvider;
 
   @override
   void initState() {
@@ -37,9 +39,12 @@ class _TractorCareAppState extends State<TractorCareApp> {
     // Initialize providers
     usageProvider = UsageProvider();
     maintenanceProvider = MaintenanceProvider();
+    tractorProvider = TractorProvider();
+    audioProvider = AudioProvider();
     
     // Connect them after creation
     usageProvider.setMaintenanceProvider(maintenanceProvider);
+    audioProvider.setTractorProvider(tractorProvider);
   }
 
   @override
@@ -47,8 +52,8 @@ class _TractorCareAppState extends State<TractorCareApp> {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()),
-        ChangeNotifierProvider(create: (_) => TractorProvider()),
-        ChangeNotifierProvider(create: (_) => AudioProvider()),
+        ChangeNotifierProvider.value(value: tractorProvider),
+        ChangeNotifierProvider.value(value: audioProvider),
         ChangeNotifierProvider.value(value: usageProvider),
         ChangeNotifierProvider.value(value: maintenanceProvider),
         ChangeNotifierProvider(
