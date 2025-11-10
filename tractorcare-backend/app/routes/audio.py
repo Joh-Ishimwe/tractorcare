@@ -230,7 +230,7 @@ async def upload_audio(
                 # Check if we already have a recent alert for this tractor
                 existing_alert = await MaintenanceAlert.find_one({
                     "tractor_id": tractor_id.upper(),
-                    "alert_type": AlertType.ABNORMAL_SOUND,
+                    "alert_type": AlertType.AUDIO_ANOMALY,
                     "status": MaintenanceStatus.PENDING,
                     "created_at": {"$gte": datetime.utcnow() - timedelta(hours=24)}
                 })
@@ -239,7 +239,7 @@ async def upload_audio(
                     # Create maintenance alert for abnormal sound
                     maintenance_alert = MaintenanceAlert(
                         tractor_id=tractor_id.upper(),
-                        alert_type=AlertType.ABNORMAL_SOUND,
+                        alert_type=AlertType.AUDIO_ANOMALY,
                         priority=MaintenancePriority.HIGH,
                         status=MaintenanceStatus.PENDING,
                         

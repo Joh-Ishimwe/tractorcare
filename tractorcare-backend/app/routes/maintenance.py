@@ -4,7 +4,7 @@ Maintenance Management Routes
 
 from fastapi import APIRouter, HTTPException, status, Depends
 from typing import List
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import logging
 from app.schemas import (
     MaintenanceRecordCreate,
@@ -304,7 +304,7 @@ async def create_test_alert(
     # Create test alert
     test_alert = MaintenanceAlert(
         tractor_id=tractor.tractor_id,
-        alert_type=AlertType.ABNORMAL_SOUND,
+        alert_type=AlertType.AUDIO_ANOMALY,
         priority=MaintenancePriority.HIGH,
         status=MaintenanceStatus.PENDING,
         
