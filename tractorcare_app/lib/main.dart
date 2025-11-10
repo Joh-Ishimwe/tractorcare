@@ -19,8 +19,28 @@ void main() {
   runApp(const TractorCareApp());
 }
 
-class TractorCareApp extends StatelessWidget {
+class TractorCareApp extends StatefulWidget {
   const TractorCareApp({super.key});
+
+  @override
+  State<TractorCareApp> createState() => _TractorCareAppState();
+}
+
+class _TractorCareAppState extends State<TractorCareApp> {
+  late final UsageProvider usageProvider;
+  late final MaintenanceProvider maintenanceProvider;
+
+  @override
+  void initState() {
+    super.initState();
+    
+    // Initialize providers
+    usageProvider = UsageProvider();
+    maintenanceProvider = MaintenanceProvider();
+    
+    // Connect them after creation
+    usageProvider.setMaintenanceProvider(maintenanceProvider);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -29,8 +49,8 @@ class TractorCareApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => TractorProvider()),
         ChangeNotifierProvider(create: (_) => AudioProvider()),
-        ChangeNotifierProvider(create: (_) => UsageProvider()),
-        ChangeNotifierProvider(create: (_) => MaintenanceProvider()),
+        ChangeNotifierProvider.value(value: usageProvider),
+        ChangeNotifierProvider.value(value: maintenanceProvider),
         ChangeNotifierProvider(
           create: (_) => OfflineSyncService()..initialize(),
         ),

@@ -4,11 +4,13 @@ import 'package:flutter/scheduler.dart';
 import '../services/api_service.dart';
 import '../services/storage_service.dart';
 import '../services/offline_sync_service.dart';
+import 'maintenance_provider.dart';
 
 class UsageProvider with ChangeNotifier {
   final ApiService _apiService = ApiService();
   final StorageService _storageService = StorageService();
   final OfflineSyncService _offlineSyncService = OfflineSyncService();
+  MaintenanceProvider? _maintenanceProvider;
 
   List<dynamic> _usageHistory = [];
   Map<String, dynamic>? _usageStats;
@@ -26,6 +28,11 @@ class UsageProvider with ChangeNotifier {
 
   UsageProvider() {
     _initialize();
+  }
+
+  // Set the maintenance provider for creating tasks
+  void setMaintenanceProvider(MaintenanceProvider maintenanceProvider) {
+    _maintenanceProvider = maintenanceProvider;
   }
 
   Future<void> _initialize() async {
@@ -75,6 +82,12 @@ class UsageProvider with ChangeNotifier {
           // Cache the data
           await _storageService.setString('usage_history_$tractorId', jsonEncode(_usageHistory));
           await _storageService.setString('usage_stats_$tractorId', jsonEncode(_usageStats));
+          
+          // Check for usage-based maintenance tasks after successful data fetch
+          if (_usageStats != null && _usageStats!['total_hours'] != null) {
+            final currentHours = double.tryParse(_usageStats!['total_hours'].toString()) ?? 0.0;
+            await _checkAndCreateUsageBasedTasks(tractorId, currentHours);
+          }
           
           notifyListeners();
         } catch (e) {
@@ -342,7 +355,31 @@ class UsageProvider with ChangeNotifier {
 
   Future<void> _scheduleMaintenanceTask(String tractorId, String taskType, double dueAtHours) async {
     try {
-      // Store pending maintenance task that UI can pick up
+      // Create maintenance task directly through MaintenanceProvider if available
+      if (_maintenanceProvider != null) {
+        final currentHoursKey = 'current_hours_$tractorId';
+        final currentHoursStr = await _storageService.getString(currentHoursKey);
+        final currentHours = double.tryParse(currentHoursStr ?? '0') ?? 0.0;
+
+        final success = await _maintenanceProvider!.createUsageBasedTask(
+          tractorId, 
+          taskType, 
+          currentHours, 
+          dueAtHours
+        );
+        
+        if (success) {
+          // Update last maintenance hours to prevent duplicate tasks
+          await _storageService.setString(
+            'last_${taskType}_hours_$tractorId',
+            dueAtHours.toString()
+          );
+          debugPrint('✅ Created usage-based maintenance task: $taskType for tractor $tractorId');
+          return;
+        }
+      }
+
+      // Fallback: Store pending maintenance task locally if MaintenanceProvider unavailable
       final pendingTaskKey = 'pending_maintenance_$tractorId';
       final existingTasks = await _storageService.getString(pendingTaskKey);
       List<Map<String, dynamic>> tasks = [];
@@ -363,6 +400,9 @@ class UsageProvider with ChangeNotifier {
           'due_at_hours': dueAtHours,
           'created_at': DateTime.now().toIso8601String(),
           'trigger_type': 'USAGE_INTERVAL',
+          'title': _getTaskTitle(taskType),
+          'description': _getTaskDescription(taskType, dueAtHours),
+          'priority': _getTaskPriority(taskType),
         });
         
         await _storageService.setString(pendingTaskKey, jsonEncode(tasks));
@@ -370,6 +410,51 @@ class UsageProvider with ChangeNotifier {
       }
     } catch (e) {
       debugPrint('❌ Error scheduling maintenance task: $e');
+    }
+  }
+
+  String _getTaskTitle(String taskType) {
+    switch (taskType) {
+      case 'oil_change':
+        return 'Engine Oil Change';
+      case 'filter_replacement':
+        return 'Filter Replacement';
+      case 'inspection':
+        return 'Regular Inspection';
+      case 'service':
+        return 'Full Service';
+      default:
+        return 'Maintenance Task';
+    }
+  }
+
+  String _getTaskDescription(String taskType, double dueAtHours) {
+    switch (taskType) {
+      case 'oil_change':
+        return 'Change engine oil and oil filter. Due at ${dueAtHours.toStringAsFixed(1)} hours.';
+      case 'filter_replacement':
+        return 'Replace air and fuel filters. Due at ${dueAtHours.toStringAsFixed(1)} hours.';
+      case 'inspection':
+        return 'Perform regular inspection and maintenance checks. Due at ${dueAtHours.toStringAsFixed(1)} hours.';
+      case 'service':
+        return 'Complete full service including all systems check. Due at ${dueAtHours.toStringAsFixed(1)} hours.';
+      default:
+        return 'Scheduled maintenance task due at ${dueAtHours.toStringAsFixed(1)} hours.';
+    }
+  }
+
+  String _getTaskPriority(String taskType) {
+    switch (taskType) {
+      case 'oil_change':
+        return 'HIGH';
+      case 'filter_replacement':
+        return 'MEDIUM';
+      case 'inspection':
+        return 'MEDIUM';
+      case 'service':
+        return 'HIGH';
+      default:
+        return 'MEDIUM';
     }
   }
 }

@@ -184,7 +184,7 @@ async def create_maintenance_task(
         tractor_id=tractor.tractor_id,
         alert_type=alert_type_map.get(task_data.type, AlertType.SCHEDULED),
         priority=priority_map.get(task_data.priority, MaintenancePriority.MEDIUM),
-        status=MaintenanceStatus.PENDING,
+        status=MaintenanceStatus.SCHEDULED,
         task_name=task_data.task_name,
         description=task_data.description,
         estimated_time_minutes=task_data.estimated_time_minutes or 60,
@@ -306,7 +306,7 @@ async def create_test_alert(
         tractor_id=tractor.tractor_id,
         alert_type=AlertType.AUDIO_ANOMALY,
         priority=MaintenancePriority.HIGH,
-        status=MaintenanceStatus.PENDING,
+        status=MaintenanceStatus.SCHEDULED,
         
         task_name="Test Sound Analysis Inspection",
         description="Test alert created manually for debugging",
