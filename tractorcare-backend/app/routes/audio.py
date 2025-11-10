@@ -7,14 +7,14 @@ FIXED: Corrected schema imports
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, status, Query
 from typing import Optional, List
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 import time
 import logging
 import librosa
 import numpy as np
 
-from app.models import User, Tractor, AudioPrediction
+from app.models import User, Tractor, AudioPrediction, MaintenanceAlert, AlertType, MaintenancePriority, MaintenanceStatus
 from app.core.security import get_current_user
 
 # ===== FIXED IMPORT - Use your actual schemas location =====
@@ -223,6 +223,48 @@ async def upload_audio(
         
         await audio_prediction.insert()
         prediction_id = str(audio_prediction.id)
+        
+        # ===== AUTO-CREATE MAINTENANCE ALERT FOR ABNORMAL SOUNDS =====
+        if prediction_class == "abnormal" and final_confidence >= 0.85:
+            try:
+                # Check if we already have a recent alert for this tractor
+                existing_alert = await MaintenanceAlert.find_one({
+                    "tractor_id": tractor_id.upper(),
+                    "alert_type": AlertType.ABNORMAL_SOUND,
+                    "status": MaintenanceStatus.PENDING,
+                    "created_at": {"$gte": datetime.utcnow() - timedelta(hours=24)}
+                })
+                
+                if not existing_alert:
+                    # Create maintenance alert for abnormal sound
+                    maintenance_alert = MaintenanceAlert(
+                        tractor_id=tractor_id.upper(),
+                        alert_type=AlertType.ABNORMAL_SOUND,
+                        priority=MaintenancePriority.HIGH,
+                        status=MaintenanceStatus.PENDING,
+                        
+                        # Task details
+                        task_name="Sound Analysis Inspection",
+                        description=f"Inspection required due to abnormal sound detection. Confidence: {final_confidence:.1%}",
+                        estimated_time_minutes=30,
+                        source="AI_Sound_Analysis",
+                        
+                        # Timing
+                        due_date=datetime.utcnow() + timedelta(days=1),  # Due tomorrow
+                        created_at=datetime.utcnow(),
+                        
+                        # Audio anomaly specific
+                        audio_anomaly_score=final_confidence,
+                        related_prediction_id=prediction_id
+                    )
+                    
+                    await maintenance_alert.insert()
+                    logger.info(f"🚨 Maintenance alert created for abnormal sound (confidence: {final_confidence:.1%})")
+                else:
+                    logger.info(f"⏭️ Maintenance alert already exists for recent abnormal sound")
+                    
+            except Exception as e:
+                logger.error(f"❌ Failed to create maintenance alert: {e}")
         
         # ===== NEW: Save trend data if baseline exists =====
         if has_baseline and deviation_info and combined_analysis:

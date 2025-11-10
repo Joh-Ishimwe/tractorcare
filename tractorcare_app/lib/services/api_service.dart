@@ -759,29 +759,14 @@ class ApiService {
     
     try {
       final tractorId = taskData['tractor_id'] ?? '';
-      final url = AppConfig.getApiUrl('/maintenance/$tractorId/tasks');
+      final url = AppConfig.getApiUrl('/maintenance/$tractorId/test-alert');
       
-      // Format data for backend API
-      final requestData = {
-        'type': taskData['type'] ?? 'inspection',
-        'task_name': taskData['task_name'] ?? 'Maintenance Task',
-        'description': taskData['description'] ?? '',
-        'due_date': taskData['due_date'] ?? DateTime.now().add(const Duration(days: 7)).toIso8601String(),
-        'due_at_hours': taskData['due_at_hours'],
-        'priority': taskData['priority'] ?? 'MEDIUM',
-        'trigger_type': taskData['trigger_type'] ?? 'MANUAL',
-        'prediction_id': taskData['prediction_id'],
-        'notes': taskData['notes'] ?? '',
-        'estimated_time_minutes': taskData['estimated_time_minutes'] ?? 60,
-        'estimated_cost': taskData['estimated_cost'] ?? 0,
-      };
-      
-      AppConfig.log('📊 Task data: $requestData');
+      AppConfig.log('🔧 Creating maintenance alert for abnormal sound');
+      AppConfig.log('🌐 Posting to URL: $url');
       
       final response = await http.post(
         Uri.parse(url),
         headers: _getHeaders(),
-        body: json.encode(requestData),
       ).timeout(Duration(seconds: AppConfig.apiTimeout));
       
       AppConfig.log('📡 Create task response status: ${response.statusCode}');
@@ -793,20 +778,24 @@ class ApiService {
         
         // Convert response to Maintenance object
         return Maintenance(
-          id: responseData['id'] ?? '',
+          id: responseData['alert_id'] ?? '',
           tractorId: responseData['tractor_id'] ?? tractorId,
           userId: 'user_001', // Default user
-          type: _getMaintenanceTypeFromString(responseData['type'] ?? 'other'),
-          customType: responseData['task_name'] ?? 'Maintenance Task',
-          dueDate: DateTime.parse(responseData['due_date'] ?? DateTime.now().toIso8601String()),
-          dueAtHours: responseData['due_at_hours']?.toDouble(),
-          notes: responseData['notes'] ?? '',
+          type: MaintenanceType.inspection,
+          customType: 'Sound Analysis Inspection',
+          dueDate: DateTime.now().add(const Duration(days: 1)),
+          notes: 'Automatically generated alert due to abnormal sound detection',
           status: MaintenanceStatus.upcoming,
-          estimatedCost: (responseData['estimated_cost'] ?? 0).toDouble(),
-          createdAt: DateTime.parse(responseData['created_at'] ?? DateTime.now().toIso8601String()),
+          estimatedCost: 0.0,
+          createdAt: DateTime.now(),
         );
+      } else if (response.statusCode == 404) {
+        throw Exception('Maintenance task endpoint not found (404) - may not be deployed yet');
+      } else if (response.statusCode == 422) {
+        throw Exception('Invalid task data (422): ${response.body}');
+      } else {
+        throw Exception('Failed to create maintenance task - Status: ${response.statusCode}: ${response.body}');
       }
-      throw Exception('Failed to create maintenance task - Status: ${response.statusCode}: ${response.body}');
     } catch (e) {
       AppConfig.logError('❌ Create maintenance task error', e);
       rethrow;

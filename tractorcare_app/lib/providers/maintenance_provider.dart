@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import '../services/api_service.dart';
 import '../services/storage_service.dart';
 import '../services/offline_sync_service.dart';
@@ -35,12 +36,15 @@ class MaintenanceProvider with ChangeNotifier {
   }
 
   void _onConnectivityChanged() {
-    debugPrint('🔄 MaintenanceProvider: Connectivity changed - Online: ${_offlineSyncService.isOnline}, Pending tasks: ${_pendingTasks.length}');
-    
-    if (_offlineSyncService.isOnline && _pendingTasks.isNotEmpty) {
-      debugPrint('📶 Connection restored, syncing ${_pendingTasks.length} pending maintenance tasks...');
-      syncPendingTasks();
-    }
+    // Schedule the sync for the next frame to avoid setState during build
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      debugPrint('🔄 MaintenanceProvider: Connectivity changed - Online: ${_offlineSyncService.isOnline}, Pending tasks: ${_pendingTasks.length}');
+      
+      if (_offlineSyncService.isOnline && _pendingTasks.isNotEmpty) {
+        debugPrint('📶 Connection restored, syncing ${_pendingTasks.length} pending maintenance tasks...');
+        syncPendingTasks();
+      }
+    });
   }
 
   @override

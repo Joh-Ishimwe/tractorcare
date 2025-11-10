@@ -281,3 +281,49 @@ async def get_alerts(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve maintenance alerts"
         )
+
+
+@router.post("/{tractor_id}/test-alert")
+async def create_test_alert(
+    tractor_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Create a test maintenance alert for debugging"""
+    # Get tractor
+    tractor = await Tractor.find_one({
+        "tractor_id": tractor_id.upper(),
+        "owner_id": str(current_user.id)
+    })
+    
+    if not tractor:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tractor not found"
+        )
+    
+    # Create test alert
+    test_alert = MaintenanceAlert(
+        tractor_id=tractor.tractor_id,
+        alert_type=AlertType.ABNORMAL_SOUND,
+        priority=MaintenancePriority.HIGH,
+        status=MaintenanceStatus.PENDING,
+        
+        task_name="Test Sound Analysis Inspection",
+        description="Test alert created manually for debugging",
+        estimated_time_minutes=30,
+        source="Manual_Test",
+        
+        due_date=datetime.now() + timedelta(days=1),
+        created_at=datetime.now(),
+        
+        audio_anomaly_score=0.95,
+        related_prediction_id="test_prediction"
+    )
+    
+    await test_alert.insert()
+    
+    return {
+        "message": "Test alert created successfully",
+        "alert_id": str(test_alert.id),
+        "tractor_id": tractor.tractor_id
+    }

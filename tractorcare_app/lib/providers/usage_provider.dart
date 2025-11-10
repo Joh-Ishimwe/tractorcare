@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import '../services/api_service.dart';
 import '../services/storage_service.dart';
 import '../services/offline_sync_service.dart';
@@ -35,17 +36,20 @@ class UsageProvider with ChangeNotifier {
   }
 
   void _onConnectivityChanged() {
-    debugPrint('🔄 UsageProvider: Connectivity changed - Online: ${_offlineSyncService.isOnline}, Pending logs: ${_pendingUsageLogs.length}');
-    
-    // When we come online and have pending logs, sync them
-    if (_offlineSyncService.isOnline && _pendingUsageLogs.isNotEmpty) {
-      debugPrint('📶 Connection restored, syncing ${_pendingUsageLogs.length} pending usage logs...');
-      syncPendingLogs();
-    } else if (!_offlineSyncService.isOnline) {
-      debugPrint('📶 Lost connection');
-    } else if (_pendingUsageLogs.isEmpty) {
-      debugPrint('📶 Online but no pending logs to sync');
-    }
+    // Schedule for next frame to avoid setState during build
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      debugPrint('🔄 UsageProvider: Connectivity changed - Online: ${_offlineSyncService.isOnline}, Pending logs: ${_pendingUsageLogs.length}');
+      
+      // When we come online and have pending logs, sync them
+      if (_offlineSyncService.isOnline && _pendingUsageLogs.isNotEmpty) {
+        debugPrint('📶 Connection restored, syncing ${_pendingUsageLogs.length} pending usage logs...');
+        syncPendingLogs();
+      } else if (!_offlineSyncService.isOnline) {
+        debugPrint('📶 Lost connection');
+      } else if (_pendingUsageLogs.isEmpty) {
+        debugPrint('📶 Online but no pending logs to sync');
+      }
+    });
   }
 
   @override
