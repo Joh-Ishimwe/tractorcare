@@ -4,11 +4,13 @@ Maintenance Management Routes
 
 from fastapi import APIRouter, HTTPException, status, Depends
 from typing import List
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 from app.schemas import (
     MaintenanceRecordCreate,
     MaintenanceRecordResponse,
+    MaintenanceTaskCreate,
+    MaintenanceTaskResponse,
     MaintenanceAlertResponse,
     AlertUpdateStatus
 )
@@ -18,6 +20,8 @@ from app.models import (
     MaintenanceAlert,
     User,
     MaintenanceStatus,
+    MaintenancePriority,
+    AlertType,
     LastMaintenanceRecord
 )
 from app.core.security import get_current_user
@@ -139,6 +143,79 @@ async def get_maintenance_history(
         )
         for r in records
     ]
+
+
+@router.post("/{tractor_id}/tasks", response_model=MaintenanceTaskResponse)
+async def create_maintenance_task(
+    tractor_id: str,
+    task_data: MaintenanceTaskCreate,
+    current_user: User = Depends(get_current_user)
+):
+    """Create a new maintenance task"""
+    # Get tractor
+    tractor = await Tractor.find_one({
+        "tractor_id": tractor_id.upper(),
+        "owner_id": str(current_user.id)
+    })
+    
+    if not tractor:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tractor not found"
+        )
+    
+    # Map priority and determine alert type based on task type
+    priority_map = {
+        "LOW": MaintenancePriority.LOW,
+        "MEDIUM": MaintenancePriority.MEDIUM,
+        "HIGH": MaintenancePriority.HIGH
+    }
+    
+    alert_type_map = {
+        "inspection": AlertType.SCHEDULED,
+        "oil_change": AlertType.SCHEDULED,
+        "filter_change": AlertType.SCHEDULED,
+        "repair": AlertType.URGENT,
+        "service": AlertType.SCHEDULED
+    }
+    
+    # Create maintenance alert (used as task)
+    alert = MaintenanceAlert(
+        tractor_id=tractor.tractor_id,
+        alert_type=alert_type_map.get(task_data.type, AlertType.SCHEDULED),
+        priority=priority_map.get(task_data.priority, MaintenancePriority.MEDIUM),
+        status=MaintenanceStatus.PENDING,
+        task_name=task_data.task_name,
+        description=task_data.description,
+        estimated_time_minutes=task_data.estimated_time_minutes or 60,
+        source=f"AUTO_{task_data.trigger_type}",
+        due_date=task_data.due_date or datetime.now(timezone.utc),
+        related_prediction_id=task_data.prediction_id
+    )
+    
+    # Save the task
+    await alert.insert()
+    
+    logger.info(f"Created maintenance task: {task_data.task_name} for tractor {tractor_id}")
+    
+    # Return response
+    return MaintenanceTaskResponse(
+        id=str(alert.id),
+        tractor_id=alert.tractor_id,
+        type=task_data.type,
+        task_name=alert.task_name,
+        description=alert.description,
+        due_date=alert.due_date,
+        due_at_hours=task_data.due_at_hours,
+        priority=task_data.priority,
+        trigger_type=task_data.trigger_type,
+        prediction_id=task_data.prediction_id,
+        status="PENDING",
+        estimated_time_minutes=alert.estimated_time_minutes,
+        estimated_cost=task_data.estimated_cost,
+        notes=task_data.notes,
+        created_at=alert.created_at
+    )
 
 
 @router.get("/{tractor_id}/alerts", response_model=List[MaintenanceAlertResponse])

@@ -751,6 +751,86 @@ class ApiService {
     }
   }
 
+  // Create a new maintenance task (not completed maintenance)
+  Future<Maintenance> createMaintenanceTask(Map<String, dynamic> taskData) async {
+    await ensureTokenLoaded();
+    
+    AppConfig.log('🔧 Creating new maintenance task');
+    
+    try {
+      final tractorId = taskData['tractor_id'] ?? '';
+      final url = AppConfig.getApiUrl('/maintenance/$tractorId/tasks');
+      
+      // Format data for backend API
+      final requestData = {
+        'type': taskData['type'] ?? 'inspection',
+        'task_name': taskData['task_name'] ?? 'Maintenance Task',
+        'description': taskData['description'] ?? '',
+        'due_date': taskData['due_date'] ?? DateTime.now().add(const Duration(days: 7)).toIso8601String(),
+        'due_at_hours': taskData['due_at_hours'],
+        'priority': taskData['priority'] ?? 'MEDIUM',
+        'trigger_type': taskData['trigger_type'] ?? 'MANUAL',
+        'prediction_id': taskData['prediction_id'],
+        'notes': taskData['notes'] ?? '',
+        'estimated_time_minutes': taskData['estimated_time_minutes'] ?? 60,
+        'estimated_cost': taskData['estimated_cost'] ?? 0,
+      };
+      
+      AppConfig.log('📊 Task data: $requestData');
+      
+      final response = await http.post(
+        Uri.parse(url),
+        headers: _getHeaders(),
+        body: json.encode(requestData),
+      ).timeout(Duration(seconds: AppConfig.apiTimeout));
+      
+      AppConfig.log('📡 Create task response status: ${response.statusCode}');
+      AppConfig.log('📄 Create task response body: ${response.body}');
+      
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final responseData = json.decode(response.body);
+        AppConfig.logSuccess('✅ Maintenance task created successfully');
+        
+        // Convert response to Maintenance object
+        return Maintenance(
+          id: responseData['id'] ?? '',
+          tractorId: responseData['tractor_id'] ?? tractorId,
+          userId: 'user_001', // Default user
+          type: _getMaintenanceTypeFromString(responseData['type'] ?? 'other'),
+          customType: responseData['task_name'] ?? 'Maintenance Task',
+          dueDate: DateTime.parse(responseData['due_date'] ?? DateTime.now().toIso8601String()),
+          dueAtHours: responseData['due_at_hours']?.toDouble(),
+          notes: responseData['notes'] ?? '',
+          status: MaintenanceStatus.upcoming,
+          estimatedCost: (responseData['estimated_cost'] ?? 0).toDouble(),
+          createdAt: DateTime.parse(responseData['created_at'] ?? DateTime.now().toIso8601String()),
+        );
+      }
+      throw Exception('Failed to create maintenance task - Status: ${response.statusCode}: ${response.body}');
+    } catch (e) {
+      AppConfig.logError('❌ Create maintenance task error', e);
+      rethrow;
+    }
+  }
+
+  MaintenanceType _getMaintenanceTypeFromString(String type) {
+    switch (type.toLowerCase()) {
+      case 'oil_change':
+        return MaintenanceType.oilChange;
+      case 'filter_change':
+      case 'filter_replacement':
+        return MaintenanceType.filterReplacement;
+      case 'inspection':
+        return MaintenanceType.inspection;
+      case 'repair':
+        return MaintenanceType.repair;
+      case 'service':
+        return MaintenanceType.service;
+      default:
+        return MaintenanceType.other;
+    }
+  }
+
   Future<Map<String, dynamic>> register(String email, String password, String fullName) async {
     final registerUrl = AppConfig.getApiUrl('${AppConfig.authEndpoint}/register');
     AppConfig.log('📝 Attempting registration to: $registerUrl');

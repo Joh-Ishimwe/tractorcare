@@ -10,6 +10,7 @@ import 'providers/auth_provider.dart';
 import 'providers/tractor_provider.dart';
 import 'providers/audio_provider.dart';
 import 'providers/usage_provider.dart';
+import 'providers/maintenance_provider.dart';
 import 'services/offline_sync_service.dart';
 
 void main() {
@@ -29,6 +30,7 @@ class TractorCareApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => TractorProvider()),
         ChangeNotifierProvider(create: (_) => AudioProvider()),
         ChangeNotifierProvider(create: (_) => UsageProvider()),
+        ChangeNotifierProvider(create: (_) => MaintenanceProvider()),
         ChangeNotifierProvider(
           create: (_) => OfflineSyncService()..initialize(),
         ),

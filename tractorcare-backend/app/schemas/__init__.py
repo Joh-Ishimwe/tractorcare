@@ -135,6 +135,57 @@ class MaintenanceRecordCreate(BaseModel):
     parts_used: Optional[List[str]] = Field(default_factory=list)
 
 
+class MaintenanceTaskCreate(BaseModel):
+    """Schema for creating a new maintenance task"""
+    type: str = Field(..., description="Type of maintenance (oil_change, inspection, etc.)")
+    task_name: str = Field(..., description="Name of the maintenance task")
+    description: str = Field(..., description="Detailed description of the task")
+    
+    # Scheduling
+    due_date: Optional[datetime] = None
+    due_at_hours: Optional[float] = Field(None, ge=0, description="Engine hours when task is due")
+    
+    # Task properties
+    priority: str = Field(default="MEDIUM", description="Priority level (LOW, MEDIUM, HIGH)")
+    trigger_type: str = Field(default="MANUAL", description="How task was created (MANUAL, ABNORMAL_SOUND, USAGE_INTERVAL)")
+    prediction_id: Optional[str] = Field(None, description="Related prediction ID if triggered by abnormal sound")
+    
+    # Estimates
+    estimated_time_minutes: Optional[int] = Field(None, gt=0)
+    estimated_cost: Optional[float] = Field(None, ge=0)
+    
+    notes: Optional[str] = None
+
+
+class MaintenanceTaskResponse(BaseModel):
+    """Schema for maintenance task response"""
+    id: str
+    tractor_id: str
+    type: str
+    task_name: str
+    description: str
+    
+    # Scheduling
+    due_date: Optional[datetime] = None
+    due_at_hours: Optional[float] = None
+    
+    # Task properties
+    priority: str
+    trigger_type: str
+    prediction_id: Optional[str] = None
+    status: str = "PENDING"
+    
+    # Estimates
+    estimated_time_minutes: Optional[int] = None
+    estimated_cost: Optional[float] = None
+    
+    notes: Optional[str] = None
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
 class MaintenanceRecordResponse(BaseModel):
     """Schema for maintenance record response"""
     id: str

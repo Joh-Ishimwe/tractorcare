@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../providers/audio_provider.dart';
+import '../../providers/maintenance_provider.dart';
 import '../../config/colors.dart';
 import '../../config/app_config.dart';
 import '../../services/api_service.dart';
@@ -250,6 +251,11 @@ class _RecordingScreenState extends State<RecordingScreen> {
       await _storageService.setString('recent_predictions_$_tractorId', 
           jsonEncode(_recentPredictions.map((p) => p.toJson()).toList()));
       
+      // Auto-create maintenance task if abnormal sound detected
+      if (prediction.predictionClass == PredictionClass.abnormal) {
+        await _createAbnormalSoundMaintenanceTask(prediction);
+      }
+      
       await Navigator.pushNamed(
         context,
         '/audio-results',
@@ -265,6 +271,44 @@ class _RecordingScreenState extends State<RecordingScreen> {
       if (mounted) {
         _loadRecentPredictions();
       }
+    }
+  }
+
+  Future<void> _createAbnormalSoundMaintenanceTask(AudioPrediction prediction) async {
+    try {
+      final maintenanceProvider = Provider.of<MaintenanceProvider>(context, listen: false);
+      
+      debugPrint('🚨 Abnormal sound detected! Creating maintenance task...');
+      
+      final success = await maintenanceProvider.createAbnormalSoundTask(_tractorId, prediction);
+      
+      if (success && mounted) {
+        // Show a subtle notification that task was created
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(Icons.build, color: Colors.white, size: 20),
+                SizedBox(width: 8),
+                Text('🚨 Inspection task created due to abnormal sound'),
+              ],
+            ),
+            backgroundColor: AppColors.warning,
+            duration: const Duration(seconds: 4),
+            action: SnackBarAction(
+              label: 'VIEW',
+              textColor: Colors.white,
+              onPressed: () {
+                // Navigate to maintenance screen
+                Navigator.pushNamed(context, '/maintenance');
+              },
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ Failed to create abnormal sound maintenance task: $e');
+      // Don't show error to user as this is an automatic process
     }
   }
 

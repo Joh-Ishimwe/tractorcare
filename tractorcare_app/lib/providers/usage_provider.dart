@@ -124,6 +124,9 @@ class UsageProvider with ChangeNotifier {
         try {
           await _apiService.logDailyUsage(tractorId, totalHours, notes);
           
+          // Check if maintenance tasks should be created based on engine hours
+          await _checkAndCreateUsageBasedTasks(tractorId, totalHours);
+          
           // Refresh data after successful submission
           await fetchUsageHistory(tractorId, forceRefresh: true);
           return true;
@@ -276,5 +279,93 @@ class UsageProvider with ChangeNotifier {
   void clearError() {
     _errorMessage = null;
     notifyListeners();
+  }
+
+  // Check if maintenance tasks should be created based on engine hours
+  Future<void> _checkAndCreateUsageBasedTasks(String tractorId, double currentHours) async {
+    try {
+      debugPrint('🔍 Checking if maintenance tasks needed for tractor $tractorId at $currentHours hours');
+      
+      // Define maintenance intervals based on manufacturer recommendations (simplified)
+      final maintenanceIntervals = {
+        'oil_change': 100.0,      // Every 100 hours
+        'filter_replacement': 200.0, // Every 200 hours  
+        'inspection': 300.0,      // Every 300 hours
+        'service': 500.0,         // Every 500 hours
+      };
+
+      // Get last maintenance hours from storage to avoid duplicate tasks
+      final lastMaintenanceData = await _storageService.getString('last_maintenance_hours_$tractorId');
+      Map<String, double> lastMaintenanceHours = {};
+      
+      if (lastMaintenanceData != null) {
+        final decoded = jsonDecode(lastMaintenanceData);
+        lastMaintenanceHours = Map<String, double>.from(decoded);
+      }
+
+      // Check each maintenance type
+      for (final entry in maintenanceIntervals.entries) {
+        final taskType = entry.key;
+        final interval = entry.value;
+        final lastHours = lastMaintenanceHours[taskType] ?? 0.0;
+        
+        // Calculate next due hours
+        final nextDueHours = ((lastHours ~/ interval) + 1) * interval;
+        
+        debugPrint('📊 $taskType: Last at ${lastHours}h, Next due at ${nextDueHours}h, Current: ${currentHours}h');
+        
+        // If current hours exceed the next due hours, create a task
+        if (currentHours >= nextDueHours) {
+          debugPrint('⚠️ Creating maintenance task: $taskType due at ${nextDueHours}h');
+          
+          // Import is causing issues, so we'll use a simpler approach without direct import
+          // Since this is called from usage logging, we'll store a flag for the UI to pick up
+          await _scheduleMaintenanceTask(tractorId, taskType, nextDueHours);
+          
+          // Update last maintenance hours to avoid duplicates
+          lastMaintenanceHours[taskType] = currentHours;
+        }
+      }
+      
+      // Save updated last maintenance hours
+      await _storageService.setString('last_maintenance_hours_$tractorId', 
+          jsonEncode(lastMaintenanceHours));
+          
+    } catch (e) {
+      debugPrint('❌ Error checking usage-based maintenance: $e');
+    }
+  }
+
+  Future<void> _scheduleMaintenanceTask(String tractorId, String taskType, double dueAtHours) async {
+    try {
+      // Store pending maintenance task that UI can pick up
+      final pendingTaskKey = 'pending_maintenance_$tractorId';
+      final existingTasks = await _storageService.getString(pendingTaskKey);
+      List<Map<String, dynamic>> tasks = [];
+      
+      if (existingTasks != null) {
+        final decoded = jsonDecode(existingTasks);
+        tasks = List<Map<String, dynamic>>.from(decoded);
+      }
+      
+      // Add new task if not already present
+      final taskExists = tasks.any((task) => 
+          task['type'] == taskType && task['due_at_hours'] == dueAtHours);
+          
+      if (!taskExists) {
+        tasks.add({
+          'tractor_id': tractorId,
+          'type': taskType,
+          'due_at_hours': dueAtHours,
+          'created_at': DateTime.now().toIso8601String(),
+          'trigger_type': 'USAGE_INTERVAL',
+        });
+        
+        await _storageService.setString(pendingTaskKey, jsonEncode(tasks));
+        debugPrint('📝 Scheduled maintenance task: $taskType for tractor $tractorId');
+      }
+    } catch (e) {
+      debugPrint('❌ Error scheduling maintenance task: $e');
+    }
   }
 }
