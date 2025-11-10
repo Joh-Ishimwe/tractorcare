@@ -31,6 +31,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
   bool _isUploading = false;
   List<AudioPrediction> _recentPredictions = [];
   bool _isLoadingPredictions = false;
+  OfflineSyncService? _offlineSyncService;
   
   final ApiService _apiService = ApiService();
   final StorageService _storageService = StorageService();
@@ -44,8 +45,55 @@ class _RecordingScreenState extends State<RecordingScreen> {
     _tractorId = args['tractor_id'] as String;
     _engineHours = args['engine_hours'] as double;
     
+    // Set up connectivity listener
+    if (_offlineSyncService == null) {
+      _offlineSyncService = Provider.of<OfflineSyncService>(context, listen: false);
+      _offlineSyncService!.addListener(_onConnectivityChanged);
+    }
+    
     // Load recent predictions
     _loadRecentPredictions();
+  }
+
+  void _onConnectivityChanged() {
+    if (_offlineSyncService?.isOnline == true) {
+      AppConfig.log('📶 Recording screen: Connection restored, refreshing predictions...');
+      _loadRecentPredictions();
+      
+      // Process any pending audio uploads if there are any
+      _processPendingAudioUploads();
+    }
+  }
+
+  Future<void> _processPendingAudioUploads() async {
+    try {
+      // Check for any pending audio files that need to be uploaded
+      final pendingAudioData = await _storageService.getString('pending_audio_uploads_$_tractorId');
+      if (pendingAudioData != null) {
+        final List<dynamic> pendingUploads = jsonDecode(pendingAudioData);
+        
+        for (final upload in pendingUploads) {
+          try {
+            AppConfig.log('📤 Processing pending audio upload: ${upload['id']}');
+            
+            // Try to upload the audio file if it exists
+            if (upload['file_path'] != null) {
+              final file = File(upload['file_path']);
+              if (await file.exists()) {
+                await _uploadAudio(upload['file_path']);
+              }
+            }
+          } catch (e) {
+            AppConfig.logError('Failed to process pending audio upload', e);
+          }
+        }
+        
+        // Clear processed uploads
+        await _storageService.remove('pending_audio_uploads_$_tractorId');
+      }
+    } catch (e) {
+      AppConfig.logError('Failed to process pending audio uploads', e);
+    }
   }
 
   @override
@@ -116,6 +164,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
   @override
   void dispose() {
     _timer?.cancel();
+    _offlineSyncService?.removeListener(_onConnectivityChanged);
     super.dispose();
   }
 
