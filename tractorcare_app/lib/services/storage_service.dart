@@ -309,7 +309,8 @@ class StorageService {
 
   Future<void> removePendingSyncItem(String syncId) async {
     final pendingItems = await getPendingSyncItems();
-    pendingItems.removeWhere((item) => item['pending_sync_id'] == syncId);
+    pendingItems.removeWhere((item) => 
+      item['pending_sync_id'] == syncId || item['id'] == syncId);
     
     final prefs = await _prefs;
     await prefs.setString(_keyPendingSync, json.encode(pendingItems));

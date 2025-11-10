@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import '../models/user.dart';
 import '../services/auth_service.dart';
+import '../services/offline_sync_service.dart';
 
 class AuthProvider with ChangeNotifier {
   final AuthService _authService = AuthService();
@@ -86,6 +87,11 @@ class AuthProvider with ChangeNotifier {
 
     try {
       _currentUser = await _authService.login(email, password);
+      
+      // Refresh connectivity status after successful login
+      final offlineSync = OfflineSyncService();
+      await offlineSync.refreshConnectivity();
+      
       _setLoading(false);
       notifyListeners();
       return true;

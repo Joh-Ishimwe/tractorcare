@@ -18,9 +18,14 @@ class ConnectionStatusWidget extends StatelessWidget {
         }
 
         return GestureDetector(
-          onTap: () {
-            // Navigate to pending sync screen when tapped
-            Navigator.pushNamed(context, AppRoutes.pendingSync);
+          onTap: () async {
+            if (!offlineSync.isOnline && !offlineSync.isSyncing) {
+              // Refresh connectivity when offline
+              await offlineSync.refreshConnectivity();
+            } else {
+              // Navigate to pending sync screen when online
+              Navigator.pushNamed(context, AppRoutes.pendingSync);
+            }
           },
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 300),
@@ -64,13 +69,26 @@ class ConnectionStatusWidget extends StatelessWidget {
                       valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                     ),
                   ),
+                ] else if (!offlineSync.isOnline) ...[
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: () async {
+                      await offlineSync.refreshConnectivity();
+                    },
+                    child: const Icon(
+                      Icons.refresh,
+                      size: 14,
+                      color: Colors.white,
+                    ),
+                  ),
+                ] else ...[
+                  const SizedBox(width: 4),
+                  const Icon(
+                    Icons.check_circle,
+                    size: 12,
+                    color: Colors.white70,
+                  ),
                 ],
-                const SizedBox(width: 4),
-                const Icon(
-                  Icons.touch_app,
-                  size: 12,
-                  color: Colors.white70,
-                ),
               ],
             ),
           ),

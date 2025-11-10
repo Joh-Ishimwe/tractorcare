@@ -160,19 +160,32 @@ class ApiService {
           tractorsList = [];
         }
         
-        AppConfig.logSuccess('✅ Found ${tractorsList.length} tractors from API');
-        AppConfig.log('🔍 First tractor preview: ${tractorsList.isNotEmpty ? tractorsList[0] : 'None'}');
+        // Parse tractors
+        final tractors = tractorsList.map((tractorJson) => Tractor.fromJson(tractorJson)).toList();
         
-        return tractorsList.map((json) => Tractor.fromJson(json)).toList();
-      } else if (response.statusCode == 401) {
-        throw Exception('Authentication failed - Please login again');
-      } else if (response.statusCode == 403) {
-        throw Exception('Not authorized to access tractors');
+        // Cache tractors for offline use
+        final storage = StorageService();
+        await storage.saveTractorsOffline(tractors);
+        
+        return tractors;
       } else {
-        throw Exception('Failed to get tractors - Status: ${response.statusCode}, Body: ${response.body}');
+        throw ApiException('Failed to fetch tractors: ${response.body}', response.statusCode);
       }
     } catch (e) {
-      AppConfig.logError('❌ Get tractors error', e);
+      AppConfig.logError('❌ Error fetching tractors', e);
+      
+      // Try to load from offline cache
+      try {
+        final storage = StorageService();
+        final cachedTractors = await storage.getTractorsOffline();
+        if (cachedTractors.isNotEmpty) {
+          AppConfig.log('📱 Using cached tractors data (${cachedTractors.length} tractors)');
+          return cachedTractors;
+        }
+      } catch (cacheError) {
+        AppConfig.logError('❌ Error loading cached tractors', cacheError);
+      }
+      
       rethrow;
     }
   }
@@ -509,8 +522,8 @@ class ApiService {
         filename: filename,
       ));
 
-      // Send request
-      final streamedResponse = await request.send();
+      // Send request with timeout
+      final streamedResponse = await request.send().timeout(const Duration(seconds: 30));
       final response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
@@ -531,7 +544,50 @@ class ApiService {
         throw Exception('Audio upload failed: ${response.body}');
       }
     } catch (e) {
-      print('Audio upload error: $e');
+      AppConfig.logError('❌ Audio upload error', e);
+      
+      // Store for offline sync if network error
+      if (e.toString().contains('Failed to fetch') || 
+          e.toString().contains('ClientException') ||
+          e.toString().contains('TimeoutException') ||
+          e.toString().contains('Connection failed')) {
+        
+        AppConfig.log('📱 Storing audio for offline sync');
+        final storage = StorageService();
+        final pendingItems = await storage.getPendingSyncItems();
+        
+        // Store audio bytes in base64 for offline sync
+        final audioId = 'audio_${DateTime.now().millisecondsSinceEpoch}';
+        final base64Audio = base64Encode(bytes);
+        
+        pendingItems.add({
+          'type': 'audio_upload',
+          'tractor_id': tractorId,
+          'engine_hours': engineHours,
+          'filename': filename,
+          'audio_data': base64Audio,
+          'timestamp': DateTime.now().toIso8601String(),
+          'id': audioId,
+        });
+        
+        await storage.savePendingSyncItems(pendingItems);
+        AppConfig.log('✅ Audio stored for offline sync');
+        
+        // Return a mock prediction for offline mode
+        return AudioPrediction.fromJson({
+          'id': audioId,
+          'tractor_id': tractorId,
+          'prediction_class': 'offline_pending',
+          'confidence': 0.0,
+          'anomaly_score': 0.0,
+          'audio_path': 'offline_pending',
+          'created_at': DateTime.now().toIso8601String(),
+          'duration_seconds': 0.0,
+          'baseline_comparison': null,
+          'offline': true,
+        });
+      }
+      
       rethrow;
     }
   }
@@ -1178,7 +1234,7 @@ class ApiService {
         Uri.parse('$baseUrl/tractors/$tractorId/usage'),
         headers: _getHeaders(),
         body: json.encode(usageData),
-      );
+      ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         final data = json.decode(response.body);
@@ -1190,6 +1246,34 @@ class ApiService {
       }
     } catch (e) {
       AppConfig.logError('❌ Usage log API error', e);
+      
+      // Store for offline sync if network error
+      if (e.toString().contains('Failed to fetch') || 
+          e.toString().contains('ClientException') ||
+          e.toString().contains('TimeoutException')) {
+        
+        AppConfig.log('📱 Storing usage log for offline sync');
+        final storage = StorageService();
+        final pendingItems = await storage.getPendingSyncItems();
+        
+        pendingItems.add({
+          'type': 'usage_log',
+          'tractor_id': tractorId,
+          'data': usageData,
+          'timestamp': DateTime.now().toIso8601String(),
+          'id': 'usage_${DateTime.now().millisecondsSinceEpoch}',
+        });
+        
+        await storage.savePendingSyncItems(pendingItems);
+        AppConfig.log('✅ Usage log stored for offline sync');
+        
+        return {
+          'success': true,
+          'message': 'Usage log saved offline and will sync when connection is restored',
+          'offline': true,
+        };
+      }
+      
       rethrow;
     }
   }

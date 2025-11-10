@@ -1,11 +1,14 @@
 // lib/services/offline_sync_service.dart
 
 import 'dart:async';
-import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 
 import 'storage_service.dart';
+import 'api_service.dart';
 import '../models/tractor.dart';
+import '../config/app_config.dart';
 
 class OfflineSyncService extends ChangeNotifier {
   final StorageService _storage = StorageService();
@@ -28,16 +31,25 @@ class OfflineSyncService extends ChangeNotifier {
 
   // Initialize the service
   Future<void> initialize() async {
+    AppConfig.log('🔄 OfflineSyncService initializing...');
+    
+    // Set initial state to offline until we verify connectivity
+    _isOnline = false;
+    
+    // Do an immediate connectivity check
     await _checkConnectivity();
     await _updatePendingChangesCount();
     
-    // Check connectivity every 30 seconds
+    AppConfig.log('✅ OfflineSyncService initialized - Online: $_isOnline');
+    
+    // Check connectivity every 15 seconds (more frequent)
     _connectivityTimer = Timer.periodic(
-      const Duration(seconds: 30),
+      const Duration(seconds: 15),
       (timer) => _checkConnectivity(),
     );
   }
 
+  @override
   void dispose() {
     _connectivityTimer?.cancel();
     super.dispose();
@@ -46,10 +58,15 @@ class OfflineSyncService extends ChangeNotifier {
   // Check current connectivity status by trying to reach the API
   Future<void> _checkConnectivity() async {
     try {
-      // Try to make a simple HTTP request to check connectivity
-      final result = await InternetAddress.lookup('google.com');
-      if (result.isNotEmpty && result[0].rawAddress.isNotEmpty) {
+      // Try to make a simple HTTP request to our API server
+      final response = await http.get(
+        Uri.parse('${AppConfig.apiBaseUrl}/'),
+        headers: {'Content-Type': 'application/json'},
+      ).timeout(const Duration(seconds: 5));
+      
+      if (response.statusCode == 200) {
         _isOnline = true;
+        AppConfig.log('✅ Online: API server reachable');
         
         // If we just came online, attempt to sync
         if (_isOnline && _pendingChangesCount > 0) {
@@ -57,9 +74,11 @@ class OfflineSyncService extends ChangeNotifier {
         }
       } else {
         _isOnline = false;
+        AppConfig.log('❌ Offline: API server returned ${response.statusCode}');
       }
     } catch (e) {
       _isOnline = false;
+      AppConfig.log('❌ Offline: Cannot reach API server - $e');
     }
     
     notifyListeners();
@@ -70,6 +89,13 @@ class OfflineSyncService extends ChangeNotifier {
     final pendingItems = await _storage.getPendingSyncItems();
     _pendingChangesCount = pendingItems.length;
     notifyListeners();
+  }
+
+  // Manual refresh - useful after login or when user wants to check connectivity
+  Future<void> refreshConnectivity() async {
+    AppConfig.log('🔄 Manual connectivity refresh requested');
+    await _checkConnectivity();
+    await _updatePendingChangesCount();
   }
 
   // ==================== OFFLINE OPERATIONS ====================
@@ -216,9 +242,14 @@ class OfflineSyncService extends ChangeNotifier {
       for (final item in pendingItems) {
         try {
           await _syncSingleItem(item);
-          await _storage.removePendingSyncItem(item['pending_sync_id']);
+          // Remove item using either pending_sync_id or id
+          final itemId = item['pending_sync_id'] ?? item['id'];
+          if (itemId != null) {
+            await _storage.removePendingSyncItem(itemId);
+          }
         } catch (e) {
-          debugPrint('Failed to sync item ${item['pending_sync_id']}: $e');
+          final itemId = item['pending_sync_id'] ?? item['id'] ?? 'unknown';
+          AppConfig.logError('Failed to sync item $itemId', e);
           // Continue with other items, don't stop the whole sync
         }
       }
@@ -228,7 +259,7 @@ class OfflineSyncService extends ChangeNotifier {
       
       return true;
     } catch (e) {
-      debugPrint('Sync failed: $e');
+      AppConfig.logError('Sync failed', e);
       return false;
     } finally {
       _isSyncing = false;
@@ -239,25 +270,52 @@ class OfflineSyncService extends ChangeNotifier {
   // Sync a single item (simplified version)
   Future<void> _syncSingleItem(Map<String, dynamic> item) async {
     final type = item['type'];
+    final apiService = ApiService();
     
     switch (type) {
       case 'maintenance_record':
         // For now, just log that we would sync this
-        debugPrint('Would sync maintenance record: ${item['task_name']}');
+        AppConfig.log('Would sync maintenance record: ${item['task_name']}');
         break;
         
       case 'usage_log':
-        // For now, just log that we would sync this
-        debugPrint('Would sync usage log: ${item['hours_operated']} hours');
+        try {
+          AppConfig.log('Syncing usage log for tractor: ${item['tractor_id']}');
+          await apiService.addUsageLog(
+            item['tractor_id'],
+            Map<String, dynamic>.from(item['data']),
+          );
+          AppConfig.log('✅ Usage log synced successfully');
+        } catch (e) {
+          AppConfig.logError('Failed to sync usage log', e);
+          rethrow;
+        }
+        break;
+        
+      case 'audio_upload':
+        try {
+          AppConfig.log('Syncing audio upload for tractor: ${item['tractor_id']}');
+          final audioBytes = base64Decode(item['audio_data']);
+          await apiService.uploadAudioBytes(
+            bytes: audioBytes,
+            filename: item['filename'],
+            tractorId: item['tractor_id'],
+            engineHours: item['engine_hours'].toDouble(),
+          );
+          AppConfig.log('✅ Audio upload synced successfully');
+        } catch (e) {
+          AppConfig.logError('Failed to sync audio upload', e);
+          rethrow;
+        }
         break;
         
       case 'tractor_update':
         // For now, just log that we would sync this
-        debugPrint('Would sync tractor update: ${item['tractor_id']}');
+        AppConfig.log('Would sync tractor update: ${item['tractor_id']}');
         break;
         
       default:
-        debugPrint('Unknown sync item type: $type');
+        AppConfig.log('Unknown sync item type: $type');
     }
   }
 
