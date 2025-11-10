@@ -1,7 +1,5 @@
 // lib/screens/tractors/tractor_detail_screen.dart
 
-// import 'dart:math' as math;
-// import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/tractor_provider.dart';
@@ -11,6 +9,9 @@ import '../../models/tractor_summary.dart';
 import '../../config/colors.dart';
 import '../../config/app_config.dart';
 import '../../services/api_service.dart';
+import '../../services/storage_service.dart';
+import '../../services/offline_sync_service.dart';
+import 'dart:convert';
 
 
 class TractorDetailScreen extends StatefulWidget {
@@ -24,6 +25,8 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
   String? _tractorId;
   bool _isLoading = true;
   final ApiService _apiService = ApiService();
+  final StorageService _storageService = StorageService();
+  final OfflineSyncService _offlineSyncService = OfflineSyncService();
   TractorSummary? _tractorSummary;
   List<dynamic>? _maintenanceAlerts;
   bool _hasBaseline = false;
@@ -85,31 +88,102 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
     try {
       AppConfig.log('🔧 Loading maintenance data for tractor: $_tractorId');
       
+      if (_offlineSyncService.isOnline) {
+        await _loadOnlineMaintenanceData();
+      } else {
+        await _loadCachedMaintenanceData();
+      }
+      
+    } catch (e) {
+      AppConfig.logError('❌ General maintenance data error', e);
+      // Fall back to cached data when there's an error
+      await _loadCachedMaintenanceData();
+    }
+  }
+
+  Future<void> _loadOnlineMaintenanceData() async {
+    try {
       // Load tractor summary for maintenance information
       try {
         AppConfig.log('📡 Attempting to load tractor summary for: $_tractorId');
         _tractorSummary = await _apiService.getTractorSummary(_tractorId!);
         AppConfig.log('✅ Tractor summary loaded: ${_tractorSummary?.alerts.length} alerts');
+        
+        // Cache the summary
+        await _storageService.setString('tractor_summary_$_tractorId', jsonEncode(_tractorSummary!.toJson()));
       } catch (e) {
         AppConfig.logError('❌ Failed to load tractor summary', e);
         AppConfig.logError('❌ Summary error details: ${e.toString()}');
-        // Continue without summary - the app should still work with basic tractor info
-        _tractorSummary = null;
+        // Try to load from cache
+        await _loadCachedTractorSummary();
       }
       
       // Load maintenance alerts  
       try {
         _maintenanceAlerts = await _apiService.getMaintenanceAlerts(_tractorId!);
         AppConfig.log('✅ Maintenance alerts loaded: ${_maintenanceAlerts?.length} alerts');
+        
+        // Cache the alerts
+        await _storageService.setString('maintenance_alerts_$_tractorId', jsonEncode(_maintenanceAlerts));
       } catch (e) {
         AppConfig.logError('❌ Failed to load maintenance alerts', e);
+        // Try to load from cache
+        await _loadCachedMaintenanceAlerts();
       }
 
       // Check baseline status
       await _checkBaselineStatus();
-      
     } catch (e) {
-      AppConfig.logError('❌ General maintenance data error', e);
+      AppConfig.logError('❌ Error loading online maintenance data', e);
+      await _loadCachedMaintenanceData();
+    }
+  }
+
+  Future<void> _loadCachedMaintenanceData() async {
+    AppConfig.log('📱 Loading cached maintenance data for: $_tractorId');
+    
+    await _loadCachedTractorSummary();
+    await _loadCachedMaintenanceAlerts();
+    await _loadCachedBaselineStatus();
+  }
+
+  Future<void> _loadCachedTractorSummary() async {
+    try {
+      final cachedSummary = await _storageService.getString('tractor_summary_$_tractorId');
+      if (cachedSummary != null) {
+        final summaryData = jsonDecode(cachedSummary);
+        _tractorSummary = TractorSummary.fromJson(summaryData);
+        AppConfig.log('✅ Loaded cached tractor summary');
+      }
+    } catch (e) {
+      AppConfig.logError('❌ Error loading cached tractor summary', e);
+    }
+  }
+
+  Future<void> _loadCachedMaintenanceAlerts() async {
+    try {
+      final cachedAlerts = await _storageService.getString('maintenance_alerts_$_tractorId');
+      if (cachedAlerts != null) {
+        _maintenanceAlerts = jsonDecode(cachedAlerts);
+        AppConfig.log('✅ Loaded cached maintenance alerts: ${_maintenanceAlerts?.length} alerts');
+      }
+    } catch (e) {
+      AppConfig.logError('❌ Error loading cached maintenance alerts', e);
+    }
+  }
+
+  Future<void> _loadCachedBaselineStatus() async {
+    try {
+      final cachedStatus = await _storageService.getString('baseline_status_$_tractorId');
+      if (cachedStatus != null) {
+        final statusData = jsonDecode(cachedStatus);
+        setState(() {
+          _hasBaseline = statusData['has_baseline'] == true;
+        });
+        AppConfig.log('✅ Loaded cached baseline status: $_hasBaseline');
+      }
+    } catch (e) {
+      AppConfig.logError('❌ Error loading cached baseline status', e);
     }
   }
 
@@ -128,6 +202,13 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
           setState(() {
             _hasBaseline = true;
           });
+          
+          // Cache the baseline status
+          await _storageService.setString('baseline_status_$_tractorId', jsonEncode({
+            'has_baseline': true,
+            'last_updated': DateTime.now().toIso8601String(),
+          }));
+          
           AppConfig.log('✅ Baseline found in history: ${historyList.length} baselines');
           return;
         }
@@ -140,26 +221,33 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
         final baselineStatus = await _apiService.getBaselineStatus(_tractorId!);
         AppConfig.log('📊 Baseline status response: $baselineStatus');
         
+        final hasBaseline = baselineStatus['status'] == 'completed' || 
+                           baselineStatus['status'] == 'active' ||
+                           baselineStatus['has_active_baseline'] == true ||
+                           baselineStatus['baseline_id'] != null;
+        
         setState(() {
-          _hasBaseline = baselineStatus['status'] == 'completed' || 
-                        baselineStatus['status'] == 'active' ||
-                        baselineStatus['has_active_baseline'] == true ||
-                        baselineStatus['baseline_id'] != null;
+          _hasBaseline = hasBaseline;
         });
+        
+        // Cache the baseline status
+        await _storageService.setString('baseline_status_$_tractorId', jsonEncode({
+          'has_baseline': hasBaseline,
+          'status': baselineStatus['status'],
+          'last_updated': DateTime.now().toIso8601String(),
+        }));
         
         AppConfig.log('✅ Baseline status loaded: hasBaseline = $_hasBaseline, status = ${baselineStatus['status']}');
       } catch (e) {
         AppConfig.logError('❌ Failed to get baseline status', e);
-        setState(() {
-          _hasBaseline = false;
-        });
+        // Try to load from cache when API fails
+        await _loadCachedBaselineStatus();
       }
       
     } catch (e) {
       AppConfig.logError('❌ Failed to check baseline status', e);
-      setState(() {
-        _hasBaseline = false;
-      });
+      // Try to load from cache when everything fails
+      await _loadCachedBaselineStatus();
     }
   }
 
@@ -179,6 +267,24 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
       appBar: AppBar(
         title: const Text('Tractor Details'),
         actions: [
+          // Connection status indicator
+          Consumer<OfflineSyncService>(
+            builder: (context, offlineSync, child) {
+              return IconButton(
+                icon: Icon(
+                  offlineSync.isOnline ? Icons.wifi : Icons.wifi_off,
+                  color: offlineSync.isOnline ? Colors.green : Colors.orange,
+                ),
+                onPressed: () async {
+                  await offlineSync.refreshConnectivity();
+                  if (offlineSync.isOnline) {
+                    await _loadMaintenanceData();
+                  }
+                },
+                tooltip: offlineSync.isOnline ? 'Online' : 'Offline - showing cached data',
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.edit),
             onPressed: () {
@@ -485,13 +591,40 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Next Maintenance',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: AppColors.textPrimary,
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Next Maintenance',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                Consumer<OfflineSyncService>(
+                  builder: (context, offlineSync, child) {
+                    if (!offlineSync.isOnline) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Text(
+                          'Cached',
+                          style: TextStyle(
+                            color: Colors.orange,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                          ),
+                        ),
+                      );
+                    }
+                    return const SizedBox.shrink();
+                  },
+                ),
+              ],
             ),
             const SizedBox(height: 16),
             _buildNextMaintenanceItem(),

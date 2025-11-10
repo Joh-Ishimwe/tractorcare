@@ -1,5 +1,3 @@
-// lib/screens/home/dashboard_screen.dart
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart'; // <-- Make sure this is in pubspec.yaml
@@ -15,8 +13,11 @@ import '../../widgets/debug_api_widget.dart';
 import '../../widgets/custom_app_bar.dart';
 import '../../widgets/connection_status_widget.dart';
 import '../../services/api_service.dart';
+import '../../services/storage_service.dart';
+import '../../services/offline_sync_service.dart';
 import '../../models/maintenance.dart';
 import '../../models/tractor_summary.dart';
+import 'dart:convert';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -32,6 +33,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   Map<String, List<dynamic>> _usageHistoryData = {};
   bool _isLoadingActivities = false;
   bool _isLoadingUsageData = false;
+  final StorageService _storageService = StorageService();
 
   @override
   void initState() {
@@ -57,8 +59,9 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   Future<void> _loadData() async {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final tractorProvider = Provider.of<TractorProvider>(context, listen: false);
+    final offlineSyncService = Provider.of<OfflineSyncService>(context, listen: false);
 
-    AppConfig.log('Dashboard loading data...');
+    AppConfig.log('Dashboard loading data... (${offlineSyncService.isOnline ? 'Online' : 'Offline'})');
     if (!authProvider.isAuthenticated) {
       AppConfig.logError('User not authenticated, redirecting to login');
       if (mounted) {
@@ -70,20 +73,28 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     setState(() => _isLoadingActivities = true);
 
     try {
+      // Load tractors (provider already handles offline/online)
       await tractorProvider.fetchTractors();
       AppConfig.log('Tractors fetched: ${tractorProvider.tractors.length}');
       
-      // Load recent predictions to determine tractor status
-      await tractorProvider.loadRecentPredictions();
-      AppConfig.log('Recent predictions loaded for status determination');
-      
-      // Load maintenance data for all tractors
-      await _loadMaintenanceActivities();
-      
-      // Load usage data for all tractors
-      await _loadUsageData();
+      if (offlineSyncService.isOnline) {
+        // Online: Load fresh data and cache it
+        await tractorProvider.loadRecentPredictions();
+        AppConfig.log('Recent predictions loaded for status determination');
+        
+        await _loadMaintenanceActivities();
+        await _loadUsageData();
+      } else {
+        // Offline: Load cached data
+        await _loadCachedMaintenanceActivities();
+        await _loadCachedUsageData();
+        AppConfig.log('Loaded cached dashboard data');
+      }
     } catch (e) {
-      AppConfig.logError('Failed to fetch tractors', e);
+      AppConfig.logError('Failed to fetch dashboard data', e);
+      // Fall back to cached data on error
+      await _loadCachedMaintenanceActivities();
+      await _loadCachedUsageData();
     } finally {
       if (mounted) setState(() => _isLoadingActivities = false);
     }
@@ -104,14 +115,23 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
         final tasks = await apiService.getMaintenanceTasks(tractor.tractorId, completed: false);
         allTasks.addAll(tasks);
         
+        // Cache maintenance tasks
+        await _storageService.setString('maintenance_tasks_${tractor.tractorId}', jsonEncode(
+          tasks.map((task) => task.toJson()).toList()
+        ));
+        
         // Get tractor summary for usage data
         final summary = await apiService.getTractorSummary(tractor.tractorId);
         summaries[tractor.tractorId] = summary;
         
+        // Cache tractor summary
+        await _storageService.setString('tractor_summary_${tractor.tractorId}', jsonEncode(summary.toJson()));
+        
         AppConfig.log('Loaded ${tasks.length} maintenance tasks for tractor ${tractor.tractorId}');
       } catch (e) {
         AppConfig.logError('Failed to load data for tractor ${tractor.tractorId}', e);
-        // Continue with other tractors even if one fails
+        // Try to load cached data for this tractor
+        await _loadCachedDataForTractor(tractor.tractorId, allTasks, summaries);
       }
     }
 
@@ -120,6 +140,49 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
         _allMaintenanceTasks = allTasks;
         _tractorSummaries = summaries;
       });
+    }
+  }
+
+  Future<void> _loadCachedMaintenanceActivities() async {
+    final tractorProvider = Provider.of<TractorProvider>(context, listen: false);
+    
+    AppConfig.log('Loading cached maintenance activities for ${tractorProvider.tractors.length} tractors');
+    
+    List<Maintenance> allTasks = [];
+    Map<String, TractorSummary> summaries = {};
+
+    for (final tractor in tractorProvider.tractors) {
+      await _loadCachedDataForTractor(tractor.tractorId, allTasks, summaries);
+    }
+
+    if (mounted) {
+      setState(() {
+        _allMaintenanceTasks = allTasks;
+        _tractorSummaries = summaries;
+      });
+    }
+  }
+
+  Future<void> _loadCachedDataForTractor(String tractorId, List<Maintenance> allTasks, Map<String, TractorSummary> summaries) async {
+    try {
+      // Load cached maintenance tasks
+      final cachedTasks = await _storageService.getString('maintenance_tasks_$tractorId');
+      if (cachedTasks != null) {
+        final tasksData = jsonDecode(cachedTasks) as List;
+        final tasks = tasksData.map((taskData) => Maintenance.fromJson(taskData)).toList();
+        allTasks.addAll(tasks);
+        AppConfig.log('Loaded ${tasks.length} cached maintenance tasks for tractor $tractorId');
+      }
+      
+      // Load cached tractor summary
+      final cachedSummary = await _storageService.getString('tractor_summary_$tractorId');
+      if (cachedSummary != null) {
+        final summaryData = jsonDecode(cachedSummary);
+        summaries[tractorId] = TractorSummary.fromJson(summaryData);
+        AppConfig.log('Loaded cached tractor summary for $tractorId');
+      }
+    } catch (e) {
+      AppConfig.logError('Failed to load cached data for tractor $tractorId', e);
     }
   }
 
@@ -139,11 +202,14 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
         final history = await apiService.getUsageHistory(tractor.tractorId, days: 7);
         usageData[tractor.tractorId] = history;
         
+        // Cache usage data
+        await _storageService.setString('usage_history_dashboard_${tractor.tractorId}', jsonEncode(history));
+        
         AppConfig.log('Loaded usage history for tractor ${tractor.tractorId}: ${history.length} records');
       } catch (e) {
         AppConfig.logError('Failed to load usage data for tractor ${tractor.tractorId}', e);
-        // Set empty list for this tractor so chart still shows it
-        usageData[tractor.tractorId] = [];
+        // Try to load cached usage data
+        await _loadCachedUsageDataForTractor(tractor.tractorId, usageData);
       }
     }
 
@@ -152,6 +218,43 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
         _usageHistoryData = usageData;
         _isLoadingUsageData = false;
       });
+    }
+  }
+
+  Future<void> _loadCachedUsageData() async {
+    final tractorProvider = Provider.of<TractorProvider>(context, listen: false);
+    
+    setState(() => _isLoadingUsageData = true);
+    
+    AppConfig.log('Loading cached usage data for ${tractorProvider.tractors.length} tractors');
+    
+    Map<String, List<dynamic>> usageData = {};
+
+    for (final tractor in tractorProvider.tractors) {
+      await _loadCachedUsageDataForTractor(tractor.tractorId, usageData);
+    }
+
+    if (mounted) {
+      setState(() {
+        _usageHistoryData = usageData;
+        _isLoadingUsageData = false;
+      });
+    }
+  }
+
+  Future<void> _loadCachedUsageDataForTractor(String tractorId, Map<String, List<dynamic>> usageData) async {
+    try {
+      final cachedUsage = await _storageService.getString('usage_history_dashboard_$tractorId');
+      if (cachedUsage != null) {
+        usageData[tractorId] = jsonDecode(cachedUsage);
+        AppConfig.log('Loaded cached usage history for tractor $tractorId');
+      } else {
+        // Set empty list if no cached data
+        usageData[tractorId] = [];
+      }
+    } catch (e) {
+      AppConfig.logError('Failed to load cached usage data for tractor $tractorId', e);
+      usageData[tractorId] = [];
     }
   }
 

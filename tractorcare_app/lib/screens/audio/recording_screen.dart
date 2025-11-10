@@ -1,6 +1,5 @@
-// lib/screens/audio/recording_screen.dart
-
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -10,7 +9,10 @@ import '../../providers/audio_provider.dart';
 import '../../config/colors.dart';
 import '../../config/app_config.dart';
 import '../../services/api_service.dart';
+import '../../services/storage_service.dart';
+import '../../services/offline_sync_service.dart';
 import '../../models/audio_prediction.dart';
+import 'dart:convert';
 
 class RecordingScreen extends StatefulWidget {
   const RecordingScreen({super.key});
@@ -31,6 +33,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
   bool _isLoadingPredictions = false;
   
   final ApiService _apiService = ApiService();
+  final StorageService _storageService = StorageService();
 
   @override
   void didChangeDependencies() {
@@ -57,19 +60,56 @@ class _RecordingScreenState extends State<RecordingScreen> {
     
     setState(() => _isLoadingPredictions = true);
     
+    final offlineSyncService = Provider.of<OfflineSyncService>(context, listen: false);
+    
     try {
-      final predictions = await _apiService.getPredictions(_tractorId);
-      if (mounted) {
-        setState(() {
-          _recentPredictions = (predictions as List<AudioPrediction>?)
-              ?.take(3) // Show only last 3 predictions
-              .toList() ?? [];
-        });
+      if (offlineSyncService.isOnline) {
+        // Online: Fetch from API and cache
+        final predictions = await _apiService.getPredictions(_tractorId);
+        final predictionList = (predictions as List<AudioPrediction>?)
+            ?.take(3) // Show only last 3 predictions
+            .toList() ?? [];
+        
+        // Cache the predictions
+        await _storageService.setString('recent_predictions_$_tractorId', 
+            jsonEncode(predictionList.map((p) => p.toJson()).toList()));
+        
+        if (mounted) {
+          setState(() {
+            _recentPredictions = predictionList;
+          });
+        }
+      } else {
+        // Offline: Load from cache
+        await _loadCachedPredictions();
       }
     } catch (e) {
       AppConfig.logError('Failed to load recent predictions', e);
+      // Fall back to cached data on error
+      await _loadCachedPredictions();
     } finally {
       if (mounted) setState(() => _isLoadingPredictions = false);
+    }
+  }
+
+  Future<void> _loadCachedPredictions() async {
+    try {
+      final cachedData = await _storageService.getString('recent_predictions_$_tractorId');
+      if (cachedData != null) {
+        final predictionsData = jsonDecode(cachedData) as List;
+        final predictions = predictionsData
+            .map((data) => AudioPrediction.fromJson(data))
+            .toList();
+        
+        if (mounted) {
+          setState(() {
+            _recentPredictions = predictions;
+          });
+        }
+        AppConfig.log('Loaded ${predictions.length} cached predictions');
+      }
+    } catch (e) {
+      AppConfig.logError('Failed to load cached predictions', e);
     }
   }
 
@@ -117,89 +157,153 @@ class _RecordingScreenState extends State<RecordingScreen> {
 
   Future<void> _uploadAudio(String filePath) async {
     setState(() => _isUploading = true);
+    
+    final offlineSyncService = Provider.of<OfflineSyncService>(context, listen: false);
+    
     try {
-      final prediction = await _apiService.predictAudio(
-        audioFile: filePath,
-        tractorId: _tractorId,
-        engineHours: _engineHours,
-      );
-      
-      if (mounted) {
-        // Insert into recent predictions so UI reflects immediately
-        setState(() {
-          _recentPredictions.insert(0, prediction);
-          if (_recentPredictions.length > 3) _recentPredictions = _recentPredictions.take(3).toList();
-        });
-        
-        // Also reload from server to ensure consistency
-        _loadRecentPredictions();
-        
-        await Navigator.pushNamed(
-          context,
-          '/audio-results',
-          arguments: {
-            'prediction': prediction,
-            'tractor_id': _tractorId,
-            'engine_hours': _engineHours,
-            'recording_duration': _recordingDuration,
-          },
+      if (offlineSyncService.isOnline) {
+        // Online: Direct upload
+        final prediction = await _apiService.predictAudio(
+          audioFile: kIsWeb ? null : File(filePath),
+          tractorId: _tractorId,
+          engineHours: _engineHours,
         );
         
-        // Refresh predictions when returning from results screen
-        if (mounted) {
-          _loadRecentPredictions();
-        }
+        await _handleSuccessfulPrediction(prediction);
+      } else {
+        // Offline: Queue for later upload
+        await _queueAudioForUpload(filePath, null, null);
+        _showOfflineMessage();
       }
     } catch (e) {
       AppConfig.logError('Audio upload failed', e);
-      if (mounted) {
-        _showError('Analysis failed: ${e.toString()}');
+      if (offlineSyncService.isOnline) {
+        // If we're online but upload failed, also queue it
+        await _queueAudioForUpload(filePath, null, null);
+        _showError('Analysis failed, queued for retry when online');
+      } else {
+        _showError('Offline - audio queued for analysis when online');
       }
     } finally {
       if (mounted) setState(() => _isUploading = false);
     }
   }
 
-  Future<void> _uploadAudioWeb(Uint8List audioBytes, String fileName) async {
-    setState(() => _isUploading = true);
-    try {
-      final prediction = await _apiService.predictAudio(
-        audioBytes: audioBytes,
-        fileName: fileName,
-        tractorId: _tractorId,
-        engineHours: _engineHours,
+  Future<void> _handleSuccessfulPrediction(AudioPrediction prediction) async {
+    if (mounted) {
+      // Insert into recent predictions so UI reflects immediately
+      setState(() {
+        _recentPredictions.insert(0, prediction);
+        if (_recentPredictions.length > 3) _recentPredictions = _recentPredictions.take(3).toList();
+      });
+      
+      // Cache the updated predictions
+      await _storageService.setString('recent_predictions_$_tractorId', 
+          jsonEncode(_recentPredictions.map((p) => p.toJson()).toList()));
+      
+      await Navigator.pushNamed(
+        context,
+        '/audio-results',
+        arguments: {
+          'prediction': prediction,
+          'tractor_id': _tractorId,
+          'engine_hours': _engineHours,
+          'recording_duration': _recordingDuration,
+        },
       );
       
+      // Refresh predictions when returning from results screen
       if (mounted) {
-        // Insert into recent predictions so UI reflects immediately
-        setState(() {
-          _recentPredictions.insert(0, prediction);
-          if (_recentPredictions.length > 3) _recentPredictions = _recentPredictions.take(3).toList();
-        });
-        
-        // Also reload from server to ensure consistency
         _loadRecentPredictions();
-        
-        await Navigator.pushNamed(
-          context,
-          '/audio-results',
-          arguments: {
-            'prediction': prediction,
-            'tractor_id': _tractorId,
-            'engine_hours': _engineHours,
-            'recording_duration': _recordingDuration,
-          },
+      }
+    }
+  }
+
+  Future<void> _queueAudioForUpload(String? filePath, Uint8List? audioBytes, String? fileName) async {
+    try {
+      // Create a pending prediction entry
+      final pendingPrediction = {
+        'id': 'pending_${DateTime.now().millisecondsSinceEpoch}',
+        'tractor_id': _tractorId,
+        'engine_hours': _engineHours,
+        'recording_duration': _recordingDuration,
+        'timestamp': DateTime.now().toIso8601String(),
+        'file_path': filePath,
+        'file_name': fileName,
+        'status': 'pending',
+        'audio_bytes': audioBytes?.toString(), // Convert to string for storage
+      };
+      
+      // Add to recent predictions immediately with pending status
+      final pendingAudioPrediction = AudioPrediction(
+        id: pendingPrediction['id'] as String,
+        tractorId: _tractorId,
+        userId: '', // Will be populated when synced
+        audioPath: filePath ?? fileName ?? 'recorded_audio',
+        predictionClass: PredictionClass.unknown,
+        confidence: 0.0,
+        anomalyScore: 0.0,
+        anomalyType: AnomalyType.unknown,
+        engineHours: _engineHours,
+        createdAt: DateTime.now(),
+      );
+      
+      setState(() {
+        _recentPredictions.insert(0, pendingAudioPrediction);
+        if (_recentPredictions.length > 3) _recentPredictions = _recentPredictions.take(3).toList();
+      });
+      
+      // Cache the updated predictions
+      await _storageService.setString('recent_predictions_$_tractorId', 
+          jsonEncode(_recentPredictions.map((p) => p.toJson()).toList()));
+      
+      AppConfig.log('Audio queued for upload: ${pendingPrediction['id']}');
+    } catch (e) {
+      AppConfig.logError('Failed to queue audio for upload', e);
+    }
+  }
+
+  void _showOfflineMessage() {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Offline - Audio recorded and will be analyzed when online'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  Future<void> _uploadAudioWeb(Uint8List audioBytes, String fileName) async {
+    setState(() => _isUploading = true);
+    
+    final offlineSyncService = Provider.of<OfflineSyncService>(context, listen: false);
+    
+    try {
+      if (offlineSyncService.isOnline) {
+        // Online: Direct upload
+        final prediction = await _apiService.predictAudio(
+          audioBytes: audioBytes,
+          fileName: fileName,
+          tractorId: _tractorId,
+          engineHours: _engineHours,
         );
         
-        // Refresh predictions when returning from results screen
-        if (mounted) {
-          _loadRecentPredictions();
-        }
+        await _handleSuccessfulPrediction(prediction);
+      } else {
+        // Offline: Queue for later upload
+        await _queueAudioForUpload(null, audioBytes, fileName);
+        _showOfflineMessage();
       }
     } catch (e) {
       AppConfig.logError('Audio upload failed', e);
-      if (mounted) {
-        _showError('Analysis failed: ${e.toString()}');
+      if (offlineSyncService.isOnline) {
+        // If we're online but upload failed, also queue it
+        await _queueAudioForUpload(null, audioBytes, fileName);
+        _showError('Analysis failed, queued for retry when online');
+      } else {
+        _showError('Offline - audio queued for analysis when online');
       }
     } finally {
       if (mounted) setState(() => _isUploading = false);
@@ -308,6 +412,26 @@ class _RecordingScreenState extends State<RecordingScreen> {
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 0,
+        actions: [
+          // Connection status indicator
+          Consumer<OfflineSyncService>(
+            builder: (context, offlineSync, child) {
+              return IconButton(
+                icon: Icon(
+                  offlineSync.isOnline ? Icons.wifi : Icons.wifi_off,
+                  color: offlineSync.isOnline ? Colors.green : Colors.orange,
+                ),
+                onPressed: () async {
+                  await offlineSync.refreshConnectivity();
+                  if (offlineSync.isOnline) {
+                    await _loadRecentPredictions();
+                  }
+                },
+                tooltip: offlineSync.isOnline ? 'Online' : 'Offline - recordings will be queued',
+              );
+            },
+          ),
+        ],
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -602,17 +726,44 @@ class _RecordingScreenState extends State<RecordingScreen> {
                             color: AppColors.textPrimary,
                           ),
                         ),
-                        TextButton(
-                          onPressed: () {
-                            // Navigate to full history
-                          },
-                          child: Text(
-                            'View All',
-                            style: TextStyle(
-                              color: AppColors.primary,
-                              fontWeight: FontWeight.w600,
+                        Row(
+                          children: [
+                            Consumer<OfflineSyncService>(
+                              builder: (context, offlineSync, child) {
+                                if (!offlineSync.isOnline) {
+                                  return Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    margin: const EdgeInsets.only(right: 8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.orange.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: const Text(
+                                      'Cached',
+                                      style: TextStyle(
+                                        color: Colors.orange,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  );
+                                }
+                                return const SizedBox.shrink();
+                              },
                             ),
-                          ),
+                            TextButton(
+                              onPressed: () {
+                                // Navigate to full history
+                              },
+                              child: Text(
+                                'View All',
+                                style: TextStyle(
+                                  color: AppColors.primary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
