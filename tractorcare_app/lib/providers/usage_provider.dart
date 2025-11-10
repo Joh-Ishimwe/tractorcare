@@ -30,8 +30,28 @@ class UsageProvider with ChangeNotifier {
   Future<void> _initialize() async {
     await _loadPendingLogs();
     
-    // Listen to connectivity changes by checking periodically
-    // The OfflineSyncService doesn't have a stream, but we can use notifyListeners
+    // Listen to OfflineSyncService for connectivity changes
+    _offlineSyncService.addListener(_onConnectivityChanged);
+  }
+
+  void _onConnectivityChanged() {
+    debugPrint('🔄 UsageProvider: Connectivity changed - Online: ${_offlineSyncService.isOnline}, Pending logs: ${_pendingUsageLogs.length}');
+    
+    // When we come online and have pending logs, sync them
+    if (_offlineSyncService.isOnline && _pendingUsageLogs.isNotEmpty) {
+      debugPrint('📶 Connection restored, syncing ${_pendingUsageLogs.length} pending usage logs...');
+      syncPendingLogs();
+    } else if (!_offlineSyncService.isOnline) {
+      debugPrint('📶 Lost connection');
+    } else if (_pendingUsageLogs.isEmpty) {
+      debugPrint('📶 Online but no pending logs to sync');
+    }
+  }
+
+  @override
+  void dispose() {
+    _offlineSyncService.removeListener(_onConnectivityChanged);
+    super.dispose();
   }
 
   Future<void> fetchUsageHistory(String tractorId, {bool forceRefresh = false}) async {
@@ -166,22 +186,54 @@ class UsageProvider with ChangeNotifier {
     }
   }
 
-  Future<void> syncPendingLogs() async {
-    if (_pendingUsageLogs.isEmpty) return;
+  // Manual sync method that can be called from UI
+  Future<bool> manualSync() async {
+    if (_pendingUsageLogs.isEmpty) {
+      debugPrint('🔄 Manual sync: No pending logs to sync');
+      return true;
+    }
 
+    if (!_offlineSyncService.isOnline) {
+      debugPrint('❌ Manual sync: Device is offline');
+      return false;
+    }
+
+    debugPrint('🔄 Manual sync started for ${_pendingUsageLogs.length} pending logs');
+    
+    final initialPendingCount = _pendingUsageLogs.length;
+    await syncPendingLogs();
+    
+    final remainingPendingCount = _pendingUsageLogs.length;
+    final successfulSyncs = initialPendingCount - remainingPendingCount;
+    
+    debugPrint('✅ Manual sync completed: $successfulSyncs synced, $remainingPendingCount failed');
+    
+    return remainingPendingCount == 0;
+  }
+
+  Future<void> syncPendingLogs() async {
+    if (_pendingUsageLogs.isEmpty) {
+      debugPrint('🔄 UsageProvider: No pending logs to sync');
+      return;
+    }
+
+    debugPrint('🔄 UsageProvider: Starting sync of ${_pendingUsageLogs.length} pending logs...');
+    
     final List<Map<String, dynamic>> failedLogs = [];
     
     for (final log in _pendingUsageLogs) {
       try {
+        debugPrint('🔄 Syncing usage log for tractor: ${log['tractor_id']}');
+        
         await _apiService.logDailyUsage(
           log['tractor_id'],
           log['total_hours'],
           log['notes'],
         );
         
-        debugPrint('Successfully synced usage log for tractor: ${log['tractor_id']}');
+        debugPrint('✅ Successfully synced usage log for tractor: ${log['tractor_id']}');
       } catch (e) {
-        debugPrint('Failed to sync usage log: $e');
+        debugPrint('❌ Failed to sync usage log for tractor ${log['tractor_id']}: $e');
         failedLogs.add(log);
       }
     }
@@ -190,6 +242,12 @@ class UsageProvider with ChangeNotifier {
     _pendingUsageLogs = failedLogs;
     await _savePendingLogs();
     
+    if (_pendingUsageLogs.isEmpty) {
+      debugPrint('✅ All pending usage logs synced successfully');
+    } else {
+      debugPrint('❌ ${_pendingUsageLogs.length} logs failed to sync');
+    }
+    
     // Refresh usage history for all affected tractors
     final tractorIds = _pendingUsageLogs.map((log) => log['tractor_id']).toSet();
     for (final tractorId in tractorIds) {
@@ -197,10 +255,6 @@ class UsageProvider with ChangeNotifier {
     }
     
     notifyListeners();
-    
-    if (_pendingUsageLogs.isEmpty) {
-      debugPrint('All pending usage logs synced successfully');
-    }
   }
 
   Future<void> clearPendingLogs() async {

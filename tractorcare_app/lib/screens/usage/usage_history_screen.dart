@@ -242,6 +242,44 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
                         style: TextStyle(color: AppColors.info, fontSize: 14),
                       ),
                     ),
+                    Consumer<OfflineSyncService>(
+                      builder: (context, offlineSync, child) {
+                        return TextButton.icon(
+                          onPressed: offlineSync.isOnline ? () async {
+                            final success = await usageProvider.manualSync();
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(success 
+                                    ? 'Sync completed!' 
+                                    : 'Some logs failed to sync'
+                                  ),
+                                  backgroundColor: success ? AppColors.success : AppColors.warning,
+                                  duration: const Duration(seconds: 2),
+                                ),
+                              );
+                            }
+                          } : null,
+                          icon: Icon(
+                            Icons.upload,
+                            size: 16,
+                            color: offlineSync.isOnline ? AppColors.primary : Colors.grey,
+                          ),
+                          label: Text(
+                            'Sync',
+                            style: TextStyle(
+                              color: offlineSync.isOnline ? AppColors.primary : Colors.grey,
+                              fontSize: 12,
+                            ),
+                          ),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                        );
+                      },
+                    ),
                   ],
                 ),
               ),
@@ -647,6 +685,53 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
             onPressed: () => Navigator.of(context).pop(),
             child: const Text('Close'),
           ),
+          if (usageProvider.pendingUsageLogs.isNotEmpty)
+            Consumer<OfflineSyncService>(
+              builder: (context, offlineSync, child) {
+                return TextButton(
+                  onPressed: offlineSync.isOnline ? () async {
+                    // Show loading indicator
+                    showDialog(
+                      context: context,
+                      barrierDismissible: false,
+                      builder: (context) => const AlertDialog(
+                        content: Row(
+                          children: [
+                            CircularProgressIndicator(),
+                            SizedBox(width: 16),
+                            Text('Syncing...'),
+                          ],
+                        ),
+                      ),
+                    );
+
+                    // Attempt sync
+                    final success = await usageProvider.manualSync();
+                    
+                    if (mounted) {
+                      Navigator.of(context).pop(); // Close loading dialog
+                      Navigator.of(context).pop(); // Close pending logs dialog
+                      
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(success 
+                            ? 'All logs synced successfully!' 
+                            : 'Some logs failed to sync. Check your connection.'
+                          ),
+                          backgroundColor: success ? AppColors.success : AppColors.warning,
+                        ),
+                      );
+                    }
+                  } : null,
+                  child: Text(
+                    'Sync Now',
+                    style: TextStyle(
+                      color: offlineSync.isOnline ? AppColors.primary : Colors.grey,
+                    ),
+                  ),
+                );
+              },
+            ),
           if (usageProvider.pendingUsageLogs.isNotEmpty)
             TextButton(
               onPressed: () async {
