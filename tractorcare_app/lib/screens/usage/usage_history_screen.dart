@@ -1,5 +1,7 @@
 ﻿import 'package:flutter/material.dart';
-import '../../services/api_service.dart';
+import 'package:provider/provider.dart';
+import '../../providers/usage_provider.dart';
+import '../../services/offline_sync_service.dart';
 import '../../config/colors.dart';
 
 class UsageHistoryScreen extends StatefulWidget {
@@ -14,17 +16,11 @@ class UsageHistoryScreen extends StatefulWidget {
 class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
   final TextEditingController _endHoursController = TextEditingController();
   final TextEditingController _notesController = TextEditingController();
-  final ApiService _apiService = ApiService();
+  final OfflineSyncService _offlineSyncService = OfflineSyncService();
   
   late String tractorId;
   late int currentHours;
   late String model;
-  
-  List<dynamic> usageHistory = [];
-  Map<String, dynamic>? usageStats;
-  bool isLoading = true;
-  bool isSubmitting = false;
-  String? errorMessage;
 
   @override
   void didChangeDependencies() {
@@ -52,74 +48,79 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
   }
 
   Future<void> _loadUsageData() async {
-    try {
-      setState(() {
-        isLoading = true;
-        errorMessage = null;
-      });
-
-      print('🔄 Loading usage data for tractor: $tractorId');
-      
-      final historyResponse = await _apiService.getUsageHistory(tractorId);
-      final statsResponse = await _apiService.getUsageStats(tractorId);
-      
-      print('📊 Usage history response: $historyResponse');
-      print('📈 Usage stats response: $statsResponse');
-      
-      if (mounted) {
-        setState(() {
-          usageHistory = historyResponse;
-          usageStats = statsResponse;
-          isLoading = false;
-        });
-      }
-    } catch (e) {
-      print('❌ Error loading usage data: $e');
-      if (mounted) {
-        setState(() {
-          errorMessage = 'Failed to load usage data: ${e.toString()}';
-          isLoading = false;
-        });
-      }
-    }
+    final usageProvider = Provider.of<UsageProvider>(context, listen: false);
+    await usageProvider.fetchUsageHistory(tractorId);
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Usage History - $model'),
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
-      ),
-      body: isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Current Status
-                  _buildCurrentStatusCard(),
-                  const SizedBox(height: 16),
-                  
-                  // Log New Usage
-                  _buildLogUsageCard(),
-                  const SizedBox(height: 16),
-                  
-                  // // Usage Statistics (always show, even if empty)
-                  // _buildUsageStatsCard(),
-                  // const SizedBox(height: 16),
-                  
-                  // Usage History
-                  _buildUsageHistoryCard(),
-                ],
+    return Consumer<UsageProvider>(
+      builder: (context, usageProvider, child) {
+        return Scaffold(
+          appBar: AppBar(
+            title: Text('Usage History - $model'),
+            backgroundColor: AppColors.primary,
+            foregroundColor: Colors.white,
+            actions: [
+              if (usageProvider.hasPendingLogs)
+                Container(
+                  margin: const EdgeInsets.only(right: 8),
+                  child: IconButton(
+                    icon: Badge(
+                      label: Text('${usageProvider.pendingUsageLogs.length}'),
+                      child: const Icon(Icons.sync),
+                    ),
+                    onPressed: () => _showPendingLogsDialog(context, usageProvider),
+                    tooltip: 'Pending logs',
+                  ),
+                ),
+              Consumer<OfflineSyncService>(
+                builder: (context, offlineSync, child) {
+                  return IconButton(
+                    icon: Icon(
+                      offlineSync.isOnline ? Icons.wifi : Icons.wifi_off,
+                      color: offlineSync.isOnline ? Colors.green : Colors.red,
+                    ),
+                    onPressed: () async {
+                      await offlineSync.refreshConnectivity();
+                      if (offlineSync.isOnline) {
+                        await usageProvider.fetchUsageHistory(tractorId, forceRefresh: true);
+                      }
+                    },
+                    tooltip: offlineSync.isOnline ? 'Online' : 'Offline',
+                  );
+                },
               ),
-            ),
+            ],
+          ),
+          body: usageProvider.isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : SingleChildScrollView(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Current Status
+                      _buildCurrentStatusCard(usageProvider),
+                      const SizedBox(height: 16),
+                      
+                      // Log New Usage
+                      _buildLogUsageCard(usageProvider),
+                      const SizedBox(height: 16),
+                      
+                      // Usage History
+                      _buildUsageHistoryCard(usageProvider),
+                    ],
+                  ),
+                ),
+        );
+      },
     );
   }
 
   Future<void> _logDailyUsage() async {
+    final usageProvider = Provider.of<UsageProvider>(context, listen: false);
+    
     final hoursOperatedStr = _endHoursController.text.trim();
     if (hoursOperatedStr.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -146,55 +147,36 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
     // Calculate new total hours
     final newTotalHours = currentHours + hoursOperated;
 
-    try {
-      setState(() {
-        isSubmitting = true;
-        errorMessage = null;
-      });
+    final success = await usageProvider.logDailyUsage(
+      tractorId,
+      newTotalHours,
+      _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
+    );
 
-      final logResponse = await _apiService.logDailyUsage(
-        tractorId,
-        newTotalHours,
-        _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
-      );
+    if (!mounted) return;
 
-      print('✅ Usage logged successfully: $logResponse');
-
+    if (success) {
       // Update current hours locally
       currentHours = newTotalHours.toInt();
 
-      // Clear form and reload data
+      // Clear form
       _endHoursController.clear();
       _notesController.clear();
       
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Usage logged successfully!'),
+        SnackBar(
+          content: Text(
+            _offlineSyncService.isOnline 
+              ? 'Usage logged successfully!' 
+              : 'Usage logged (will sync when online)'
+          ),
           backgroundColor: AppColors.success,
         ),
       );
-
-      // Reload usage data
-      print('🔄 Reloading usage data after logging...');
-      await _loadUsageData();
-
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to log usage: ${e.toString()}'),
-          backgroundColor: AppColors.error,
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          isSubmitting = false;
-        });
-      }
     }
   }
 
-  Widget _buildCurrentStatusCard() {
+  Widget _buildCurrentStatusCard(UsageProvider usageProvider) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -220,22 +202,44 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
                 ),
               ],
             ),
-            if (errorMessage != null) ...[
+            if (usageProvider.errorMessage != null) ...[
               const SizedBox(height: 8),
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: AppColors.error.withOpacity(0.1),
+                  color: AppColors.warning.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.error_outline, color: AppColors.error, size: 20),
+                    Icon(Icons.info_outline, color: AppColors.warning, size: 20),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        errorMessage!,
-                        style: TextStyle(color: AppColors.error, fontSize: 14),
+                        usageProvider.errorMessage!,
+                        style: TextStyle(color: AppColors.warning, fontSize: 14),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            if (usageProvider.hasPendingLogs) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.info.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.sync, color: AppColors.info, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '${usageProvider.pendingUsageLogs.length} pending log(s) to sync',
+                        style: TextStyle(color: AppColors.info, fontSize: 14),
                       ),
                     ),
                   ],
@@ -248,7 +252,7 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
     );
   }
 
-  Widget _buildLogUsageCard() {
+  Widget _buildLogUsageCard(UsageProvider usageProvider) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -297,22 +301,25 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: isSubmitting ? null : _logDailyUsage,
+                onPressed: _logDailyUsage,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
-                child: isSubmitting
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                      )
-                    : const Text('Log Usage', style: TextStyle(fontSize: 16)),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (!_offlineSyncService.isOnline) ...[
+                      const Icon(Icons.offline_pin, size: 18),
+                      const SizedBox(width: 8),
+                    ],
+                    Text(
+                      _offlineSyncService.isOnline ? 'Log Usage' : 'Log Usage (Offline)',
+                      style: const TextStyle(fontSize: 16),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
@@ -418,20 +425,43 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
   //   );
   // }
 
-  Widget _buildUsageHistoryCard() {
+  Widget _buildUsageHistoryCard(UsageProvider usageProvider) {
+    final usageHistory = usageProvider.usageHistory;
+    
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Usage History',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: AppColors.textPrimary,
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Usage History',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                if (usageProvider.hasPendingLogs)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.info.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '${usageProvider.pendingUsageLogs.length} pending',
+                      style: TextStyle(
+                        color: AppColors.info,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(height: 16),
             if (usageHistory.isEmpty)
@@ -462,13 +492,17 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
     final startHours = usageMap['start_hours']?.toDouble() ?? 0.0;
     final endHours = usageMap['end_hours']?.toDouble() ?? 0.0;
     final notes = usageMap['notes'] as String?;
+    final isPending = usageMap['isPending'] == true;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade300),
+        border: Border.all(
+          color: isPending ? AppColors.warning.withOpacity(0.5) : Colors.grey.shade300,
+        ),
         borderRadius: BorderRadius.circular(8),
+        color: isPending ? AppColors.warning.withOpacity(0.05) : null,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -483,37 +517,76 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
                   fontSize: 16,
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppColors.success.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  '${hoursUsed.toStringAsFixed(1)}h',
-                  style: TextStyle(
-                    color: AppColors.success,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 12,
+              Row(
+                children: [
+                  if (isPending) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppColors.warning.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        'PENDING',
+                        style: TextStyle(
+                          color: AppColors.warning,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.success.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      isPending ? '${endHours.toStringAsFixed(1)}h total' : '${hoursUsed.toStringAsFixed(1)}h',
+                      style: TextStyle(
+                        color: AppColors.success,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
             ],
           ),
           const SizedBox(height: 8),
-          Row(
-            children: [
-              Icon(Icons.schedule, size: 16, color: AppColors.textSecondary),
-              const SizedBox(width: 4),
-              Text(
-                '${startHours.toStringAsFixed(1)} → ${endHours.toStringAsFixed(1)} hours',
-                style: const TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 14,
+          if (!isPending) ...[
+            Row(
+              children: [
+                Icon(Icons.schedule, size: 16, color: AppColors.textSecondary),
+                const SizedBox(width: 4),
+                Text(
+                  '${startHours.toStringAsFixed(1)} → ${endHours.toStringAsFixed(1)} hours',
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 14,
+                  ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
+          ] else ...[
+            Row(
+              children: [
+                Icon(Icons.sync, size: 16, color: AppColors.warning),
+                const SizedBox(width: 4),
+                Text(
+                  'Waiting to sync - Total hours: ${endHours.toStringAsFixed(1)}',
+                  style: TextStyle(
+                    color: AppColors.warning,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ],
           if (notes != null && notes.isNotEmpty) ...[
             const SizedBox(height: 8),
             Row(
@@ -533,6 +606,63 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
               ],
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  void _showPendingLogsDialog(BuildContext context, UsageProvider usageProvider) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Pending Usage Logs'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${usageProvider.pendingUsageLogs.length} usage logs waiting to sync',
+                style: const TextStyle(fontSize: 16),
+              ),
+              const SizedBox(height: 16),
+              Consumer<OfflineSyncService>(
+                builder: (context, offlineSync, child) {
+                  return Text(
+                    offlineSync.isOnline 
+                      ? 'You are online. Logs will sync automatically.'
+                      : 'You are offline. Logs will sync when connection is restored.',
+                    style: TextStyle(
+                      color: offlineSync.isOnline ? Colors.green : Colors.orange,
+                      fontSize: 14,
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+          if (usageProvider.pendingUsageLogs.isNotEmpty)
+            TextButton(
+              onPressed: () async {
+                await usageProvider.clearPendingLogs();
+                if (mounted) {
+                  Navigator.of(context).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Pending logs cleared'),
+                      backgroundColor: AppColors.success,
+                    ),
+                  );
+                }
+              },
+              child: const Text('Clear All', style: TextStyle(color: Colors.red)),
+            ),
         ],
       ),
     );
