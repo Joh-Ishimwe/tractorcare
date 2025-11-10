@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/tractor_provider.dart';
 import '../../providers/audio_provider.dart';
+import '../../providers/usage_provider.dart';
 import '../../models/tractor.dart';
 import '../../models/tractor_summary.dart';
 import '../../config/colors.dart';
@@ -901,78 +902,94 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
             
             const SizedBox(height: 8),
             
-            // Simple usage history list (last 2 records)
-            FutureBuilder<List<dynamic>>(
-              future: _apiService.getUsageHistory(_tractorId!, days: 30),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                
-                if (snapshot.hasError) {
-                  AppConfig.logError('Usage history error', snapshot.error);
-                  return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        children: [
-                          Icon(Icons.error_outline, color: AppColors.error, size: 32),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Failed to load usage history',
-                            style: TextStyle(color: AppColors.error),
+            // Simple usage history list (last 2 records) with offline support
+            Consumer<UsageProvider>(
+              builder: (context, usageProvider, child) {
+                return FutureBuilder<void>(
+                  future: usageProvider.fetchUsageHistory(_tractorId!),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting && usageProvider.usageHistory.isEmpty) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    
+                    if (snapshot.hasError && usageProvider.usageHistory.isEmpty) {
+                      AppConfig.logError('Usage history error', snapshot.error);
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            children: [
+                              Icon(Icons.error_outline, color: AppColors.error, size: 32),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Failed to load usage history',
+                                style: TextStyle(color: AppColors.error),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Check your internet connection and try again',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Check your internet connection and try again',
+                        ),
+                      );
+                    }
+
+                    final allHistory = usageProvider.usageHistory;
+                    
+                    if (allHistory.isEmpty) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(32),
+                          child: Column(
+                            children: [
+                              if (!_offlineSyncService.isOnline) ...[
+                                Icon(Icons.wifi_off, color: AppColors.warning, size: 24),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'No cached usage data available',
+                                  style: TextStyle(color: AppColors.warning),
+                                ),
+                              ] else
+                                const Text('No usage logged yet'),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+
+                    // Show only last 2 records
+                    final recentHistory = allHistory.take(2).toList();
+
+                    return Column(
+                      children: recentHistory.map<Widget>((record) {
+                        final date = DateTime.parse(record['date']);
+                        // Safely parse numeric values that might come as strings
+                        final hoursUsed = _parseDouble(record['hours_used']) ?? 0.0;
+                        final endHours = _parseDouble(record['end_hours']) ?? 0.0;
+                        
+                        return ListTile(
+                          leading: const Icon(Icons.calendar_today, color: Colors.blue),
+                          title: Text(
+                            '${date.day}/${date.month}/${date.year}',
+                            style: const TextStyle(fontWeight: FontWeight.w500),
+                          ),
+                          subtitle: Text('${hoursUsed.toStringAsFixed(1)} hours used'),
+                          trailing: Text(
+                            '${endHours.toStringAsFixed(0)} hrs',
                             style: TextStyle(
-                              fontSize: 12,
-                              color: AppColors.textSecondary,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.grey[700],
                             ),
                           ),
-                        ],
-                      ),
-                    ),
-                  );
-                }
-
-                final allHistory = snapshot.data ?? [];
-                
-                if (allHistory.isEmpty) {
-                  return const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(32),
-                      child: Text('No usage logged yet'),
-                    ),
-                  );
-                }
-
-                // Show only last 2 records
-                final recentHistory = allHistory.take(2).toList();
-
-                return Column(
-                  children: recentHistory.map<Widget>((record) {
-                    final date = DateTime.parse(record['date']);
-                    // Safely parse numeric values that might come as strings
-                    final hoursUsed = _parseDouble(record['hours_used']) ?? 0.0;
-                    final endHours = _parseDouble(record['end_hours']) ?? 0.0;
-                    
-                    return ListTile(
-                      leading: const Icon(Icons.calendar_today, color: Colors.blue),
-                      title: Text(
-                        '${date.day}/${date.month}/${date.year}',
-                        style: const TextStyle(fontWeight: FontWeight.w500),
-                      ),
-                      subtitle: Text('${hoursUsed.toStringAsFixed(1)} hours used'),
-                      trailing: Text(
-                        '${endHours.toStringAsFixed(0)} hrs',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey[700],
-                        ),
-                      ),
+                        );
+                      }).toList(),
                     );
-                  }).toList(),
+                  },
                 );
               },
             ),
