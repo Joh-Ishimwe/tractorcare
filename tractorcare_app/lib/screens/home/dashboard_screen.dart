@@ -70,85 +70,134 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
       return;
     }
 
+    // Show loading state immediately
     setState(() => _isLoadingActivities = true);
 
-    try {
-      // Load tractors (provider already handles offline/online)
-      await tractorProvider.fetchTractors();
-      AppConfig.log('Tractors fetched: ${tractorProvider.tractors.length}');
-      
-      if (offlineSyncService.isOnline) {
-        // Online: Load fresh data and cache it
-        await tractorProvider.loadRecentPredictions();
-        AppConfig.log('Recent predictions loaded for status determination');
-        
-        // Evaluate health status for all tractors after loading predictions
-        await tractorProvider.evaluateAllTractorsHealth();
-        AppConfig.log('Health status evaluated for all tractors');
-        
-        await _loadMaintenanceActivities();
-        await _loadUsageData();
-      } else {
-        // Offline: Load cached data
-        await _loadCachedMaintenanceActivities();
-        await _loadCachedUsageData();
-        AppConfig.log('Loaded cached dashboard data');
-        
-        // Evaluate health status even in offline mode (uses cached maintenance data)
+    // STEP 1: Load cached data first for immediate display
+    await _loadCachedDataImmediately(tractorProvider);
+
+    // STEP 2: If online, refresh data in parallel
+    if (offlineSyncService.isOnline) {
+      try {
+        // Start all operations in parallel for much faster loading
+        await Future.wait([
+          _loadTractorsAndHealth(tractorProvider),
+          _loadMaintenanceActivitiesInBackground(),
+          _loadUsageDataInBackground(),
+        ]);
+
+        AppConfig.log('All dashboard data loaded successfully in parallel');
+      } catch (e) {
+        AppConfig.logError('Failed to refresh dashboard data', e);
+        // Cached data is already loaded, so user still sees something
+      }
+    } else {
+      // Offline: Just evaluate health from cached data
+      try {
         await tractorProvider.evaluateAllTractorsHealth();
         AppConfig.log('Health status evaluated for all tractors (offline)');
+      } catch (e) {
+        AppConfig.logError('Failed to evaluate health status offline', e);
       }
+    }
+
+    // Always finish loading state
+    if (mounted) setState(() => _isLoadingActivities = false);
+  }
+
+  // Load cached data immediately for responsive UI
+  Future<void> _loadCachedDataImmediately(TractorProvider tractorProvider) async {
+    try {
+      // Load tractors from cache first
+      await tractorProvider.fetchTractors();
+      
+      // Load cached maintenance and usage data in parallel
+      await Future.wait([
+        _loadCachedMaintenanceActivities(),
+        _loadCachedUsageData(),
+      ]);
+      
+      AppConfig.log('Cached data loaded immediately for responsive UI');
     } catch (e) {
-      AppConfig.logError('Failed to fetch dashboard data', e);
-      // Fall back to cached data on error
-      await _loadCachedMaintenanceActivities();
-      await _loadCachedUsageData();
-    } finally {
-      if (mounted) setState(() => _isLoadingActivities = false);
+      AppConfig.logError('Failed to load cached data', e);
     }
   }
 
-  Future<void> _loadMaintenanceActivities() async {
+  // Load tractors and evaluate health in parallel
+  Future<void> _loadTractorsAndHealth(TractorProvider tractorProvider) async {
+    // Load predictions and evaluate health in parallel
+    await Future.wait([
+      tractorProvider.loadRecentPredictions(),
+      // We'll evaluate health after predictions are loaded
+    ]);
+    
+    // Now evaluate health status
+    await tractorProvider.evaluateAllTractorsHealth();
+    AppConfig.log('Tractors and health status refreshed');
+  }
+
+  // Load maintenance activities in background (non-blocking)
+  Future<void> _loadMaintenanceActivitiesInBackground() async {
     final tractorProvider = Provider.of<TractorProvider>(context, listen: false);
     final apiService = ApiService();
     
-    AppConfig.log('Loading maintenance activities for ${tractorProvider.tractors.length} tractors');
+    AppConfig.log('Loading maintenance activities in background for ${tractorProvider.tractors.length} tractors');
     
     List<Maintenance> allTasks = [];
     Map<String, TractorSummary> summaries = {};
 
-    for (final tractor in tractorProvider.tractors) {
+    // Process tractors in parallel batches for better performance
+    final futures = tractorProvider.tractors.map((tractor) async {
       try {
-        // Get maintenance alerts for this tractor (these are upcoming/overdue maintenance items)
-        final alertsResponse = await apiService.getMaintenanceAlerts(tractor.tractorId);
+        // Load maintenance alerts and tractor summary in parallel for each tractor
+        final results = await Future.wait([
+          apiService.getMaintenanceAlerts(tractor.tractorId),
+          apiService.getTractorSummary(tractor.tractorId),
+        ]);
+
+        final alertsResponse = results[0] as List;
+        final summary = results[1] as TractorSummary;
+
         final tasks = alertsResponse.map((alert) => _convertAlertToMaintenance(alert)).toList();
-        allTasks.addAll(tasks);
         
-        // Cache maintenance tasks
-        await _storageService.setString('maintenance_tasks_${tractor.tractorId}', jsonEncode(
-          tasks.map((task) => task.toJson()).toList()
-        ));
+        // Cache the data immediately
+        await Future.wait([
+          _storageService.setString('maintenance_tasks_${tractor.tractorId}', 
+            jsonEncode(tasks.map((task) => task.toJson()).toList())),
+          _storageService.setString('tractor_summary_${tractor.tractorId}', 
+            jsonEncode(summary.toJson())),
+        ]);
         
-        // Get tractor summary for usage data
-        final summary = await apiService.getTractorSummary(tractor.tractorId);
-        summaries[tractor.tractorId] = summary;
-        
-        // Cache tractor summary
-        await _storageService.setString('tractor_summary_${tractor.tractorId}', jsonEncode(summary.toJson()));
-        
-        AppConfig.log('Loaded ${tasks.length} maintenance alerts for tractor ${tractor.tractorId}');
+        return {
+          'tasks': tasks,
+          'summary': summary,
+          'tractorId': tractor.tractorId,
+        };
       } catch (e) {
         AppConfig.logError('Failed to load data for tractor ${tractor.tractorId}', e);
-        // Try to load cached data for this tractor
-        await _loadCachedDataForTractor(tractor.tractorId, allTasks, summaries);
+        return null;
+      }
+    });
+
+    // Wait for all tractors to complete
+    final results = await Future.wait(futures);
+    
+    // Collect all successful results
+    for (final result in results) {
+      if (result != null) {
+        allTasks.addAll(result['tasks'] as List<Maintenance>);
+        final tractorId = result['tractorId'] as String;
+        summaries[tractorId] = result['summary'] as TractorSummary;
       }
     }
 
+    // Update UI with fresh data
     if (mounted) {
       setState(() {
         _allMaintenanceTasks = allTasks;
         _tractorSummaries = summaries;
       });
+      AppConfig.log('Maintenance activities refreshed: ${allTasks.length} total tasks');
     }
   }
 
@@ -195,38 +244,52 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     }
   }
 
-  Future<void> _loadUsageData() async {
+  // Load usage data in background (non-blocking)  
+  Future<void> _loadUsageDataInBackground() async {
     final tractorProvider = Provider.of<TractorProvider>(context, listen: false);
     final apiService = ApiService();
     
-    setState(() => _isLoadingUsageData = true);
-    
-    AppConfig.log('Loading usage data for ${tractorProvider.tractors.length} tractors');
+    AppConfig.log('Loading usage data in background for ${tractorProvider.tractors.length} tractors');
     
     Map<String, List<dynamic>> usageData = {};
 
-    for (final tractor in tractorProvider.tractors) {
+    // Load usage data for all tractors in parallel
+    final futures = tractorProvider.tractors.map((tractor) async {
       try {
         // Get usage history for last 7 days
         final history = await apiService.getUsageHistory(tractor.tractorId, days: 7);
-        usageData[tractor.tractorId] = history;
         
-        // Cache usage data
-        await _storageService.setString('usage_history_dashboard_${tractor.tractorId}', jsonEncode(history));
+        // Cache usage data immediately
+        await _storageService.setString('usage_history_dashboard_${tractor.tractorId}', 
+          jsonEncode(history));
         
-        AppConfig.log('Loaded usage history for tractor ${tractor.tractorId}: ${history.length} records');
+        return {
+          'tractorId': tractor.tractorId,
+          'history': history,
+        };
       } catch (e) {
         AppConfig.logError('Failed to load usage data for tractor ${tractor.tractorId}', e);
-        // Try to load cached usage data
-        await _loadCachedUsageDataForTractor(tractor.tractorId, usageData);
+        return null;
+      }
+    });
+
+    // Wait for all to complete
+    final results = await Future.wait(futures);
+    
+    // Collect successful results
+    for (final result in results) {
+      if (result != null) {
+        final tractorId = result['tractorId'] as String;
+        usageData[tractorId] = result['history'] as List<dynamic>;
       }
     }
 
+    // Update UI with fresh usage data
     if (mounted) {
       setState(() {
         _usageHistoryData = usageData;
-        _isLoadingUsageData = false;
       });
+      AppConfig.log('Usage data refreshed for ${usageData.length} tractors');
     }
   }
 

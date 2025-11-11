@@ -30,10 +30,16 @@ class _TractorListScreenState extends State<TractorListScreen> {
 
   Future<void> _loadTractors() async {
     final tractorProvider = Provider.of<TractorProvider>(context, listen: false);
+    
+    // Load tractors (optimized to show cached data first)
     await tractorProvider.fetchTractors();
     
-    // Evaluate health status for all tractors after loading
-    await tractorProvider.evaluateAllTractorsHealth();
+    // Evaluate health status in background (non-blocking)
+    tractorProvider.evaluateAllTractorsHealth().then((_) {
+      print('🏥 Health evaluation completed for tractor list');
+    }).catchError((error) {
+      print('❌ Health evaluation failed: $error');
+    });
   }
 
   List<Tractor> _filterTractors(List<Tractor> tractors) {

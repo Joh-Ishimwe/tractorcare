@@ -72,18 +72,28 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
       final actualTractorId = loadedTractor.tractorId;
       AppConfig.log('🔧 Using actual tractor ID for API calls: $actualTractorId (was: $_tractorId)');
       
-      await audioProvider.fetchPredictions(actualTractorId, limit: 5);
-      
       // Update _tractorId to use the actual tractor ID for subsequent calls
       _tractorId = actualTractorId;
       
-      // Evaluate health status after loading all data
-      await tractorProvider.evaluateTractorHealth(actualTractorId);
+      // Load audio predictions and evaluate health in parallel (non-blocking)
+      Future.wait([
+        audioProvider.fetchPredictions(actualTractorId, limit: 5),
+        tractorProvider.evaluateTractorHealth(actualTractorId),
+      ]).then((_) {
+        AppConfig.log('🎵 Audio predictions and health evaluation completed');
+      }).catchError((error) {
+        AppConfig.logError('❌ Failed to load predictions or evaluate health', error);
+      });
     }
     
-    // Load maintenance summary and alerts
-    await _loadMaintenanceData();
+    // Load maintenance data in parallel (non-blocking)
+    _loadMaintenanceData().then((_) {
+      AppConfig.log('🔧 Maintenance data loaded');
+    }).catchError((error) {
+      AppConfig.logError('❌ Failed to load maintenance data', error);
+    });
     
+    // Stop loading immediately to show basic tractor info
     setState(() => _isLoading = false);
   }
 

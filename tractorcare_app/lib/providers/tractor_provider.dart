@@ -33,26 +33,59 @@ class TractorProvider with ChangeNotifier {
     _clearError();
 
     try {
+      // OPTIMIZATION: Load cached data first for immediate display
+      if (_tractors.isEmpty) {
+        try {
+          _tractors = await _storage.getTractorsOffline();
+          if (_tractors.isNotEmpty) {
+            _setLoading(false); // Show cached data immediately
+            notifyListeners();
+            print('🚀 Loaded ${_tractors.length} tractors from cache for immediate display');
+          }
+        } catch (e) {
+          print('No cached tractors available: $e');
+        }
+      }
+
       if (_offlineSync.isOnline) {
-        // Fetch from API and cache offline
-        _tractors = await _api.getTractors();
-        await _storage.saveTractorsOffline(_tractors);
+        // Fetch from API in background and update cache
+        try {
+          final freshTractors = await _api.getTractors();
+          await _storage.saveTractorsOffline(freshTractors);
+          
+          // Only update if we got fresh data
+          if (freshTractors.isNotEmpty) {
+            _tractors = freshTractors;
+            print('🔄 Updated with ${_tractors.length} fresh tractors from API');
+          }
+        } catch (e) {
+          // API failed but we have cached data - that's fine
+          if (_tractors.isNotEmpty) {
+            _setError('Using cached data. ${e.toString()}');
+          } else {
+            throw e;
+          }
+        }
       } else {
-        // Load from offline storage
-        _tractors = await _storage.getTractorsOffline();
+        // Load from offline storage (if not already loaded above)
         if (_tractors.isEmpty) {
-          throw Exception('No offline data available. Please connect to internet.');
+          _tractors = await _storage.getTractorsOffline();
+          if (_tractors.isEmpty) {
+            throw Exception('No offline data available. Please connect to internet.');
+          }
         }
       }
       _setLoading(false);
     } catch (e) {
-      // Fallback to offline data if API fails
+      // Final fallback to offline data if API fails
       try {
-        _tractors = await _storage.getTractorsOffline();
-        if (_tractors.isNotEmpty) {
-          _setError('Showing offline data. ${e.toString()}');
-        } else {
-          _setError(e.toString());
+        if (_tractors.isEmpty) {
+          _tractors = await _storage.getTractorsOffline();
+          if (_tractors.isNotEmpty) {
+            _setError('Showing offline data. ${e.toString()}');
+          } else {
+            _setError(e.toString());
+          }
         }
       } catch (offlineError) {
         _setError(e.toString());
@@ -135,27 +168,7 @@ class TractorProvider with ChangeNotifier {
     }
   }
 
-  // Check if a tractor has recent abnormal predictions
-  bool _hasCriticalPredictions(String tractorId) {
-    final predictions = _recentPredictions[tractorId] ?? [];
-    if (predictions.isEmpty) return false;
-    
-    // Check if the most recent prediction is abnormal
-    final mostRecent = predictions.first;
-    return mostRecent.predictionClass == PredictionClass.abnormal && 
-           mostRecent.anomalyScore > 0.8; // High anomaly score = critical
-  }
 
-  // Check if a tractor has recent warning-level predictions  
-  bool _hasWarningPredictions(String tractorId) {
-    final predictions = _recentPredictions[tractorId] ?? [];
-    if (predictions.isEmpty) return false;
-    
-    // Check if the most recent prediction shows warning signs
-    final mostRecent = predictions.first;
-    return mostRecent.predictionClass == PredictionClass.abnormal && 
-           mostRecent.anomalyScore > 0.5 && mostRecent.anomalyScore <= 0.8; // Medium anomaly score = warning
-  }
 
   // Add new prediction and update critical status in real-time
   void addNewPrediction(String tractorId, AudioPrediction prediction) {
@@ -533,11 +546,32 @@ class TractorProvider with ChangeNotifier {
     }
   }
 
-  // Evaluate health for all tractors
+  // Evaluate health for all tractors (optimized for background processing)
   Future<void> evaluateAllTractorsHealth() async {
-    for (final tractor in _tractors) {
-      await evaluateTractorHealth(tractor.tractorId);
+    if (_tractors.isEmpty) {
+      print('⚠️  No tractors to evaluate health for');
+      return;
     }
+
+    print('🔍 Starting health evaluation for ${_tractors.length} tractors');
+    
+    // Process tractors in smaller batches to avoid blocking UI
+    const batchSize = 3;
+    for (int i = 0; i < _tractors.length; i += batchSize) {
+      final endIndex = (i + batchSize < _tractors.length) ? i + batchSize : _tractors.length;
+      final batch = _tractors.sublist(i, endIndex);
+      
+      // Process batch in parallel
+      final futures = batch.map((tractor) => evaluateTractorHealth(tractor.tractorId));
+      await Future.wait(futures);
+      
+      // Small delay to prevent overwhelming the system
+      if (i + batchSize < _tractors.length) {
+        await Future.delayed(const Duration(milliseconds: 50));
+      }
+    }
+    
+    print('✅ Health evaluation completed for all tractors');
   }
 
   // Get health report for a tractor
