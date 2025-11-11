@@ -23,8 +23,8 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   // Additional analytics data
   List<FlSpot> _usageTrendData = [];
   List<FlSpot> _maintenanceTrendData = [];
-  Map<String, double> _monthlyUsage = {};
-  Map<String, int> _monthlyMaintenance = {};
+  final Map<String, double> _monthlyUsage = {};
+  final Map<String, int> _monthlyMaintenance = {};
   String _selectedTimeRange = '6M'; // 1M, 3M, 6M, 1Y
 
   @override

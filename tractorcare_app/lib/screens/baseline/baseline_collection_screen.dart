@@ -3,7 +3,6 @@ import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
 
@@ -919,7 +918,7 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
           const SizedBox(height: 16),
           
           DropdownButtonFormField<String>(
-            value: _loadCondition,
+            initialValue: _loadCondition,
             decoration: InputDecoration(
               labelText: 'Load Condition',
               border: OutlineInputBorder(
@@ -1016,7 +1015,7 @@ class _BaselineCollectionScreenState extends State<BaselineCollectionScreen> {
             ),
           )
         else
-          ...history.map((baseline) => _buildHistoryItem(baseline)).toList(),
+          ...history.map((baseline) => _buildHistoryItem(baseline)),
       ],
     );
   }

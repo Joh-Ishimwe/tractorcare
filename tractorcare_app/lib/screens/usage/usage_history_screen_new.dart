@@ -417,7 +417,7 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
                 ),
               )
             else
-              ...usageHistory.map((usage) => _buildUsageHistoryItem(usage)).toList(),
+              ...usageHistory.map((usage) => _buildUsageHistoryItem(usage)),
           ],
         ),
       ),
