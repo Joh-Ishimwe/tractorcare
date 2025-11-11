@@ -603,46 +603,55 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                     color: AppColors.textPrimary,
                   ),
                 ),
-                Consumer<OfflineSyncService>(
-                  builder: (context, offlineSync, child) {
-                    if (!offlineSync.isOnline) {
-                      return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.orange.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Text(
-                          'Cached',
-                          style: TextStyle(
-                            color: Colors.orange,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 12,
-                          ),
-                        ),
-                      );
-                    }
-                    return const SizedBox.shrink();
-                  },
+                Row(
+                  children: [
+                    Consumer<OfflineSyncService>(
+                      builder: (context, offlineSync, child) {
+                        if (!offlineSync.isOnline) {
+                          return Container(
+                            margin: const EdgeInsets.only(right: 8),
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Text(
+                              'Cached',
+                              style: TextStyle(
+                                color: Colors.orange,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 12,
+                              ),
+                            ),
+                          );
+                        }
+                        return const SizedBox.shrink();
+                      },
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.pushNamed(context, '/calendar');
+                      },
+                      child: const Text('View All'),
+                    ),
+                  ],
                 ),
               ],
             ),
             const SizedBox(height: 16),
-            _buildNextMaintenanceItem(),
+            _buildMaintenanceList(),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildNextMaintenanceItem() {
-    // Get next maintenance from loaded data
-    dynamic nextMaintenance;
-    Color statusColor = Colors.orange;
-    String statusText = 'Due Soon';
+  Widget _buildMaintenanceList() {
+    // Get maintenance alerts and categorize them
+    List<dynamic> maintenanceItems = [];
     
     if (_maintenanceAlerts != null && _maintenanceAlerts!.isNotEmpty) {
-      // Sort alerts by due date and get the most urgent one
+      // Sort alerts by due date (most urgent first)
       final sortedAlerts = List<dynamic>.from(_maintenanceAlerts!)
         ..sort((a, b) {
           final aDate = DateTime.tryParse(a['due_date']?.toString() ?? '') ?? DateTime.now().add(const Duration(days: 365));
@@ -650,10 +659,161 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
           return aDate.compareTo(bDate);
         });
       
-      nextMaintenance = sortedAlerts.first;
+      maintenanceItems = sortedAlerts;
+    } else if (_tractorSummary?.alerts != null && _tractorSummary!.alerts.isNotEmpty) {
+      // Fallback to summary alerts
+      final sortedAlerts = List.from(_tractorSummary!.alerts)
+        ..sort((a, b) {
+          final aDate = a.dueDate ?? DateTime.now().add(const Duration(days: 365));
+          final bDate = b.dueDate ?? DateTime.now().add(const Duration(days: 365));
+          return aDate.compareTo(bDate);
+        });
       
-      // Determine status color based on urgency
-      final dueDate = DateTime.tryParse(nextMaintenance['due_date']?.toString() ?? '');
+      maintenanceItems = sortedAlerts.map((alert) => {
+        'task_name': alert.task,
+        'due_date': alert.dueDate?.toIso8601String(),
+        'description': alert.description,
+        'trigger_type': 'manual', // Default for existing data
+      }).toList();
+    } else {
+      // Default maintenance items when no data is available
+      final now = DateTime.now();
+      maintenanceItems = [
+        {
+          'task_name': 'Engine Oil Change',
+          'due_date': now.add(const Duration(days: 15)).toIso8601String(),
+          'description': 'Engine oil and filter replacement',
+          'trigger_type': 'usage_interval',
+        },
+        {
+          'task_name': 'Abnormal Sound Investigation',
+          'due_date': now.add(const Duration(days: 3)).toIso8601String(),
+          'description': 'Check engine components due to detected abnormal sound',
+          'trigger_type': 'abnormal_sound',
+        },
+        {
+          'task_name': 'Air Filter Check',
+          'due_date': now.add(const Duration(days: 30)).toIso8601String(),
+          'description': 'Inspect and replace air filter if needed',
+          'trigger_type': 'manual',
+        },
+      ];
+    }
+
+    // Categorize maintenance items
+    final abnormalSoundItems = maintenanceItems.where((item) => 
+      (item['trigger_type']?.toString() ?? 'manual') == 'abnormal_sound'
+    ).toList();
+    
+    final routineItems = maintenanceItems.where((item) => 
+      (item['trigger_type']?.toString() ?? 'manual') != 'abnormal_sound'
+    ).toList();
+
+    // Show at least 2 items total, but prioritize abnormal sound items
+    List<dynamic> itemsToShow = [];
+    
+    // Add abnormal sound items first (these are more urgent)
+    itemsToShow.addAll(abnormalSoundItems.take(2));
+    
+    // Fill remaining slots with routine maintenance (at least 1, up to 2 total)
+    final remainingSlots = 3 - itemsToShow.length;
+    if (remainingSlots > 0) {
+      itemsToShow.addAll(routineItems.take(remainingSlots));
+    }
+    
+    // If we still don't have at least 2 items, add defaults
+    if (itemsToShow.length < 2) {
+      final now = DateTime.now();
+      final defaultRoutineItems = [
+        {
+          'task_name': 'Engine Oil Change',
+          'due_date': now.add(const Duration(days: 15)).toIso8601String(),
+          'description': 'Engine oil and filter replacement',
+          'trigger_type': 'usage_interval',
+        },
+        {
+          'task_name': 'General Inspection',
+          'due_date': now.add(const Duration(days: 60)).toIso8601String(),
+          'description': 'Routine maintenance inspection',
+          'trigger_type': 'manual',
+        },
+      ];
+      
+      for (final defaultItem in defaultRoutineItems) {
+        if (itemsToShow.length >= 2) break;
+        itemsToShow.add(defaultItem);
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Show categorized maintenance items
+        if (abnormalSoundItems.isNotEmpty) ...[
+          _buildCategoryHeader('🔊 Detected Abnormal Sound', Colors.red),
+          const SizedBox(height: 8),
+          ...abnormalSoundItems.take(2).map<Widget>((maintenance) => 
+            _buildMaintenanceItem(maintenance, isAbnormalSound: true)),
+          const SizedBox(height: 12),
+        ],
+        
+        if (routineItems.isNotEmpty || abnormalSoundItems.isEmpty) ...[
+          if (abnormalSoundItems.isNotEmpty) 
+            _buildCategoryHeader('⚙️ Normal Routine', Colors.blue)
+          else
+            _buildCategoryHeader('⚙️ Upcoming Maintenance', Colors.blue),
+          const SizedBox(height: 8),
+          ...itemsToShow.where((item) => 
+            (item['trigger_type']?.toString() ?? 'manual') != 'abnormal_sound'
+          ).take(2).map<Widget>((maintenance) => 
+            _buildMaintenanceItem(maintenance, isAbnormalSound: false)),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildCategoryHeader(String title, Color color) {
+    return Row(
+      children: [
+        Container(
+          width: 3,
+          height: 20,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: color.withValues(alpha: 0.8),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMaintenanceItem(dynamic maintenance, {bool isAbnormalSound = false}) {
+    // Get maintenance info
+    final taskName = maintenance['task_name'] ?? maintenance['description'] ?? 'Maintenance Task';
+    final dueInfo = _formatMaintenanceDue(maintenance);
+    
+    // Determine status color based on category and urgency
+    Color statusColor;
+    String statusText;
+    
+    if (isAbnormalSound) {
+      statusColor = Colors.red;
+      statusText = 'Urgent';
+    } else {
+      // Normal routine maintenance color logic
+      statusColor = Colors.orange;
+      statusText = 'Due Soon';
+      
+      final dueDate = DateTime.tryParse(maintenance['due_date']?.toString() ?? '');
       if (dueDate != null) {
         final daysUntilDue = dueDate.difference(DateTime.now()).inDays;
         if (daysUntilDue < 0) {
@@ -667,28 +827,10 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
           statusText = 'Upcoming';
         }
       }
-    } else if (_tractorSummary?.alerts != null && _tractorSummary!.alerts.isNotEmpty) {
-      // Fallback to summary alerts
-      final sortedAlerts = List.from(_tractorSummary!.alerts)
-        ..sort((a, b) {
-          final aDate = a.dueDate ?? DateTime.now().add(const Duration(days: 365));
-          final bDate = b.dueDate ?? DateTime.now().add(const Duration(days: 365));
-          return aDate.compareTo(bDate);
-        });
-      
-      final alert = sortedAlerts.first;
-      nextMaintenance = {
-        'task_name': alert.task,
-        'due_date': alert.dueDate?.toIso8601String(),
-        'description': alert.description,
-      };
     }
 
-    // Get maintenance info
-    final taskName = nextMaintenance?['task_name'] ?? nextMaintenance?['description'] ?? 'Engine oil and filter change';
-    final dueInfo = _formatMaintenanceDue(nextMaintenance);
-
     return Container(
+      margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: statusColor.withValues(alpha: 0.1),
@@ -710,13 +852,27 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  taskName,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary,
-                  ),
+                Row(
+                  children: [
+                    if (isAbnormalSound) ...[
+                      Icon(
+                        Icons.volume_up,
+                        size: 16,
+                        color: Colors.red,
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    Expanded(
+                      child: Text(
+                        taskName,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -729,6 +885,39 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
               ],
             ),
           ),
+          const SizedBox(width: 8),
+          // Mark Complete Button
+          GestureDetector(
+            onTap: () => _markMaintenanceComplete(maintenance),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppColors.success.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: AppColors.success, width: 1),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.check,
+                    size: 14,
+                    color: AppColors.success,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Complete',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.success,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
@@ -997,6 +1186,112 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _markMaintenanceComplete(Map<String, dynamic> maintenance) async {
+    try {
+      // Show confirmation dialog
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Complete Maintenance'),
+          content: Text(
+            'Mark "${maintenance['task_name']}" as completed?\n\nThis will record the task as finished and move it to completed maintenance history.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.success,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Mark Complete'),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed != true) return;
+
+      // Show loading indicator
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const AlertDialog(
+          content: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 16),
+              Text('Recording maintenance...'),
+            ],
+          ),
+        ),
+      );
+
+      // Record the completed maintenance
+      final maintenanceData = {
+        'tractor_id': _tractorId!,
+        'task_name': maintenance['task_name'] ?? 'Maintenance Task',
+        'description': maintenance['description'] ?? 'Completed maintenance task',
+        'completion_date': DateTime.now().toIso8601String(),
+        'completion_hours': _tractorSummary?.engineHours ?? 0.0,
+        'actual_time_minutes': 60, // Default 1 hour
+        'notes': 'Completed via mobile app',
+        'performed_by': 'Mobile App User',
+      };
+
+      await _apiService.createMaintenance(maintenanceData);
+      
+      // Close loading dialog
+      if (mounted) Navigator.of(context).pop();
+
+      // Show success message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                const SizedBox(width: 8),
+                Text('${maintenance['task_name']} marked as complete!'),
+              ],
+            ),
+            backgroundColor: AppColors.success,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+
+      // Refresh the data to reflect the completion
+      await _loadMaintenanceData();
+      
+    } catch (e) {
+      // Close loading dialog if open
+      if (mounted) Navigator.of(context).pop();
+      
+      // Show error message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.error, color: Colors.white),
+                const SizedBox(width: 8),
+                Text('Failed to complete maintenance: ${e.toString()}'),
+              ],
+            ),
+            backgroundColor: AppColors.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      AppConfig.logError('Failed to complete maintenance', e);
+    }
   }
 
 }

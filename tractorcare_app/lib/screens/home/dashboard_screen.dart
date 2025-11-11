@@ -111,8 +111,9 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
 
     for (final tractor in tractorProvider.tractors) {
       try {
-        // Get maintenance alerts for this tractor
-        final tasks = await apiService.getMaintenanceTasks(tractor.tractorId, completed: false);
+        // Get maintenance alerts for this tractor (these are upcoming/overdue maintenance items)
+        final alertsResponse = await apiService.getMaintenanceAlerts(tractor.tractorId);
+        final tasks = alertsResponse.map((alert) => _convertAlertToMaintenance(alert)).toList();
         allTasks.addAll(tasks);
         
         // Cache maintenance tasks
@@ -127,7 +128,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
         // Cache tractor summary
         await _storageService.setString('tractor_summary_${tractor.tractorId}', jsonEncode(summary.toJson()));
         
-        AppConfig.log('Loaded ${tasks.length} maintenance tasks for tractor ${tractor.tractorId}');
+        AppConfig.log('Loaded ${tasks.length} maintenance alerts for tractor ${tractor.tractorId}');
       } catch (e) {
         AppConfig.logError('Failed to load data for tractor ${tractor.tractorId}', e);
         // Try to load cached data for this tractor
@@ -258,6 +259,41 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
     }
   }
 
+  // Method to refresh maintenance data when new tasks are created (e.g., from abnormal sounds)
+  Future<void> refreshMaintenanceData() async {
+    final tractorProvider = Provider.of<TractorProvider>(context, listen: false);
+    final apiService = ApiService();
+    
+    AppConfig.log('Refreshing maintenance data for dashboard');
+    
+    List<Maintenance> allTasks = [];
+
+    for (final tractor in tractorProvider.tractors) {
+      try {
+        final alertsResponse = await apiService.getMaintenanceAlerts(tractor.tractorId);
+        final tasks = alertsResponse.map((alert) => _convertAlertToMaintenance(alert)).toList();
+        allTasks.addAll(tasks);
+        
+        // Update cache
+        await _storageService.setString('maintenance_tasks_${tractor.tractorId}', jsonEncode(
+          tasks.map((task) => task.toJson()).toList()
+        ));
+        
+        AppConfig.log('Refreshed ${tasks.length} maintenance alerts for tractor ${tractor.tractorId}');
+      } catch (e) {
+        AppConfig.logError('Failed to refresh maintenance data for tractor ${tractor.tractorId}', e);
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _allMaintenanceTasks = allTasks;
+      });
+      
+      AppConfig.log('Dashboard maintenance data refreshed: ${allTasks.length} total tasks');
+    }
+  }
+
   void _onNavTap(int index) {
     setState(() => _currentIndex = index);
     switch (index) {
@@ -332,7 +368,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
               margin: const EdgeInsets.only(bottom: 8),
               child: ListTile(
                 leading: CircleAvatar(
-                  backgroundColor: AppColors.success.withOpacity(0.1),
+                  backgroundColor: AppColors.success.withValues(alpha: 0.1),
                   child: const Icon(
                     Icons.agriculture,
                     color: AppColors.success,
@@ -417,6 +453,59 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
         ),
       );
     }
+  }
+
+  // Convert API alert response to Maintenance object for dashboard display
+  Maintenance _convertAlertToMaintenance(Map<String, dynamic> alert) {
+    // Parse status from alert status
+    MaintenanceStatus status;
+    switch (alert['status']?.toString().toLowerCase()) {
+      case 'overdue':
+        status = MaintenanceStatus.overdue;
+        break;
+      case 'due':
+        status = MaintenanceStatus.due;
+        break;
+      default:
+        status = MaintenanceStatus.upcoming;
+    }
+
+    // Parse type from task name
+    MaintenanceType type;
+    switch (alert['task_name']?.toString().toLowerCase()) {
+      case 'engine_oil_change':
+      case 'oil_change':
+        type = MaintenanceType.oilChange;
+        break;
+      case 'air_filter_check':
+      case 'filter_replacement':
+        type = MaintenanceType.filterReplacement;
+        break;
+      case 'inspection':
+        type = MaintenanceType.inspection;
+        break;
+      case 'service':
+        type = MaintenanceType.service;
+        break;
+      case 'repair':
+        type = MaintenanceType.repair;
+        break;
+      default:
+        type = MaintenanceType.other;
+    }
+
+    return Maintenance(
+      id: alert['id'] ?? '',
+      tractorId: alert['tractor_id'] ?? '',
+      userId: '', // Default empty since alerts don't have user info
+      type: type,
+      customType: alert['task_name'] ?? 'general',
+      triggerType: MaintenanceTriggerType.manual, // Default for dashboard alerts
+      dueDate: DateTime.tryParse(alert['due_date'] ?? '') ?? DateTime.now(),
+      status: status,
+      notes: alert['cost_note'],
+      createdAt: DateTime.tryParse(alert['created_at'] ?? '') ?? DateTime.now(),
+    );
   }
 
   @override
@@ -568,7 +657,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                 Icons.calendar_today,
                 'Calendar',
                 AppColors.success,
-                () => Navigator.pushNamed(context, '/calendar'), // Update route if needed
+                () => Navigator.pushNamed(context, '/calendar'),
               ),
             ),
           ],

@@ -346,6 +346,8 @@ class ApiService {
             userId: 'user_001', // Default user
             type: MaintenanceType.service, // Default type
             customType: record['task_name'] ?? 'Maintenance',
+            triggerType: MaintenanceTriggerType.manual, // Default for completed records
+            predictionId: record['prediction_id'],
             dueDate: DateTime.parse(record['completion_date'] ?? DateTime.now().toIso8601String()),
             notes: record['notes'] ?? record['description'] ?? '',
             status: MaintenanceStatus.completed, // All records from backend are completed
@@ -378,6 +380,7 @@ class ApiService {
                     userId: alert['user_id'] ?? 'system',
                     type: _mapAlertTypeToMaintenanceType(alert['alert_type']),
                     customType: alert['title'] ?? alert['alert_type'] ?? 'Maintenance',
+                    triggerType: MaintenanceTriggerType.usageInterval, // Default for alerts
                     dueDate: DateTime.tryParse(alert['due_date'] ?? '') ?? DateTime.now().add(const Duration(days: 7)),
                     notes: alert['description'] ?? alert['message'] ?? 'Maintenance required',
                     status: MaintenanceStatus.upcoming,
@@ -674,6 +677,7 @@ class ApiService {
           )
         : MaintenanceType.service,
       customType: updates['custom_type'] ?? 'Updated Service',
+      triggerType: MaintenanceTriggerType.manual, // Default for updates
       dueDate: updates['due_date'] != null 
         ? DateTime.parse(updates['due_date'])
         : now.add(const Duration(days: 30)),
@@ -745,6 +749,7 @@ class ApiService {
           userId: 'user_001', // Default user
           type: MaintenanceType.service,
           customType: responseData['task_name'] ?? 'Maintenance',
+          triggerType: MaintenanceTriggerType.manual, // Default for completed maintenance
           dueDate: DateTime.parse(responseData['completion_date'] ?? DateTime.now().toIso8601String()),
           notes: responseData['notes'] ?? '',
           status: MaintenanceStatus.completed,
@@ -792,6 +797,7 @@ class ApiService {
           userId: 'user_001', // Default user
           type: MaintenanceType.inspection,
           customType: 'Sound Analysis Inspection',
+          triggerType: MaintenanceTriggerType.abnormalSound, // This is from sound analysis
           dueDate: DateTime.now().add(const Duration(days: 1)),
           notes: 'Automatically generated alert due to abnormal sound detection',
           status: MaintenanceStatus.upcoming,

@@ -9,6 +9,17 @@ enum MaintenanceType {
   other,
 }
 
+enum MaintenanceCategory {
+  normalRoutine,    // MANUAL + USAGE_INTERVAL
+  abnormalSound,    // ABNORMAL_SOUND
+}
+
+enum MaintenanceTriggerType {
+  manual,
+  abnormalSound,
+  usageInterval,
+}
+
 enum MaintenanceStatus {
   upcoming,
   due,
@@ -23,6 +34,8 @@ class Maintenance {
   final String userId;
   final MaintenanceType type;
   final String? customType; // For "other" type
+  final MaintenanceTriggerType triggerType;
+  final String? predictionId; // For abnormal sound predictions
   final DateTime dueDate;
   final double? dueAtHours;
   final double? estimatedCost;
@@ -40,6 +53,8 @@ class Maintenance {
     required this.userId,
     required this.type,
     this.customType,
+    required this.triggerType,
+    this.predictionId,
     required this.dueDate,
     this.dueAtHours,
     this.estimatedCost,
@@ -60,6 +75,8 @@ class Maintenance {
       userId: json['user_id'] ?? '',
       type: _parseMaintenanceType(json['type']),
       customType: json['custom_type'],
+      triggerType: _parseTriggerType(json['trigger_type']),
+      predictionId: json['prediction_id'],
       dueDate: DateTime.parse(json['due_date']),
       dueAtHours: json['due_at_hours'] != null
           ? (json['due_at_hours'] as num).toDouble()
@@ -121,6 +138,19 @@ class Maintenance {
     }
   }
 
+  // Parse trigger type
+  static MaintenanceTriggerType _parseTriggerType(String? value) {
+    switch (value?.toLowerCase()) {
+      case 'abnormal_sound':
+        return MaintenanceTriggerType.abnormalSound;
+      case 'usage_interval':
+        return MaintenanceTriggerType.usageInterval;
+      case 'manual':
+      default:
+        return MaintenanceTriggerType.manual;
+    }
+  }
+
   // To JSON
   Map<String, dynamic> toJson() {
     return {
@@ -129,6 +159,8 @@ class Maintenance {
       'user_id': userId,
       'type': typeString,
       'custom_type': customType,
+      'trigger_type': triggerTypeString,
+      'prediction_id': predictionId,
       'due_date': dueDate.toIso8601String(),
       'due_at_hours': dueAtHours,
       'estimated_cost': estimatedCost,
@@ -149,6 +181,8 @@ class Maintenance {
     String? userId,
     MaintenanceType? type,
     String? customType,
+    MaintenanceTriggerType? triggerType,
+    String? predictionId,
     DateTime? dueDate,
     double? dueAtHours,
     double? estimatedCost,
@@ -166,6 +200,8 @@ class Maintenance {
       userId: userId ?? this.userId,
       type: type ?? this.type,
       customType: customType ?? this.customType,
+      triggerType: triggerType ?? this.triggerType,
+      predictionId: predictionId ?? this.predictionId,
       dueDate: dueDate ?? this.dueDate,
       dueAtHours: dueAtHours ?? this.dueAtHours,
       estimatedCost: estimatedCost ?? this.estimatedCost,
@@ -212,6 +248,29 @@ class Maintenance {
         return 'service';
       case MaintenanceType.other:
         return 'other';
+    }
+  }
+
+  // Get trigger type string
+  String get triggerTypeString {
+    switch (triggerType) {
+      case MaintenanceTriggerType.abnormalSound:
+        return 'abnormal_sound';
+      case MaintenanceTriggerType.usageInterval:
+        return 'usage_interval';
+      case MaintenanceTriggerType.manual:
+        return 'manual';
+    }
+  }
+
+  // Get category
+  MaintenanceCategory get category {
+    switch (triggerType) {
+      case MaintenanceTriggerType.abnormalSound:
+        return MaintenanceCategory.abnormalSound;
+      case MaintenanceTriggerType.manual:
+      case MaintenanceTriggerType.usageInterval:
+        return MaintenanceCategory.normalRoutine;
     }
   }
 

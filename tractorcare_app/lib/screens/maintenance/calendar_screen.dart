@@ -55,8 +55,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
       // Load maintenance tasks for all tractors
       for (final tractor in tractorProvider.tractors) {
         try {
-          // Get both upcoming and completed maintenance
-          final upcomingTasks = await apiService.getMaintenanceTasks(tractor.tractorId, completed: false);
+          // Get maintenance alerts (upcoming/overdue tasks)
+          final alertsResponse = await apiService.getMaintenanceAlerts(tractor.tractorId);
+          final upcomingTasks = alertsResponse.map((alert) => _convertAlertToMaintenance(alert)).toList();
+          
+          // Get completed maintenance tasks
           final completedTasks = await apiService.getMaintenanceTasks(tractor.tractorId, completed: true);
           
           final allTasks = [...upcomingTasks, ...completedTasks];
@@ -426,64 +429,133 @@ class _CalendarScreenState extends State<CalendarScreen> {
     );
   }
 
+  // Convert API alert response to Maintenance object
+  Maintenance _convertAlertToMaintenance(Map<String, dynamic> alert) {
+    // Parse status from alert status
+    MaintenanceStatus status;
+    switch (alert['status']?.toString().toLowerCase()) {
+      case 'overdue':
+        status = MaintenanceStatus.overdue;
+        break;
+      case 'due':
+        status = MaintenanceStatus.due;
+        break;
+      default:
+        status = MaintenanceStatus.upcoming;
+    }
+
+    // Parse type from task name
+    MaintenanceType type;
+    switch (alert['task_name']?.toString().toLowerCase()) {
+      case 'engine_oil_change':
+      case 'oil_change':
+        type = MaintenanceType.oilChange;
+        break;
+      case 'air_filter_check':
+      case 'filter_replacement':
+        type = MaintenanceType.filterReplacement;
+        break;
+      case 'inspection':
+        type = MaintenanceType.inspection;
+        break;
+      case 'service':
+        type = MaintenanceType.service;
+        break;
+      case 'repair':
+        type = MaintenanceType.repair;
+        break;
+      default:
+        type = MaintenanceType.other;
+    }
+
+    // Parse trigger type from alert data
+    MaintenanceTriggerType triggerType;
+    switch (alert['trigger_type']?.toString().toLowerCase()) {
+      case 'abnormal_sound':
+        triggerType = MaintenanceTriggerType.abnormalSound;
+        break;
+      case 'usage_interval':
+        triggerType = MaintenanceTriggerType.usageInterval;
+        break;
+      case 'manual':
+      default:
+        triggerType = MaintenanceTriggerType.manual;
+    }
+
+    return Maintenance(
+      id: alert['id'] ?? '',
+      tractorId: alert['tractor_id'] ?? '',
+      userId: '', // Default empty since alerts don't have user info
+      type: type,
+      customType: alert['task_name'] ?? 'general',
+      triggerType: triggerType,
+      predictionId: alert['prediction_id'],
+      dueDate: DateTime.tryParse(alert['due_date'] ?? '') ?? DateTime.now(),
+      status: status,
+      notes: alert['cost_note'],
+      createdAt: DateTime.tryParse(alert['created_at'] ?? '') ?? DateTime.now(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: const CustomAppBar(title: 'Maintenance Calendar'),
       body: RefreshIndicator(
         onRefresh: _loadEvents,
-        child: Column(
-          children: [
-            // Header + Schedule Button
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: const Text(
-                          'Schedule and track maintenance activities',
-                          style: TextStyle(fontSize: 14, color: Colors.grey),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      ElevatedButton.icon(
-                        onPressed: _showScheduleBottomSheet,
-                        icon: const Icon(Icons.add, size: 18),
-                        label: const Text('Schedule'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (_isLoading) ...[
-                    const SizedBox(height: 8),
-                    const Row(
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              // Header + Schedule Button
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                        Expanded(
+                          child: const Text(
+                            'Schedule and track maintenance activities',
+                            style: TextStyle(fontSize: 14, color: Colors.grey),
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
-                        SizedBox(width: 8),
-                        Text(
-                          'Loading maintenance data...',
-                          style: TextStyle(fontSize: 12, color: Colors.grey),
+                        const SizedBox(width: 12),
+                        ElevatedButton.icon(
+                          onPressed: _showScheduleBottomSheet,
+                          icon: const Icon(Icons.add, size: 18),
+                          label: const Text('Schedule'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          ),
                         ),
                       ],
                     ),
+                    if (_isLoading) ...[
+                      const SizedBox(height: 8),
+                      const Row(
+                        children: [
+                          SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                          SizedBox(width: 8),
+                          Text(
+                            'Loading maintenance data...',
+                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
 
             // Calendar Header
             _buildCalendarHeader(),
@@ -633,8 +705,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   ],
                 ),
               ),
-            ],
-          ],
+            ], // Closes if (_selectedDay != null) ...[
+            ], // Closes main Column children
+          ),
         ),
       ),
     );

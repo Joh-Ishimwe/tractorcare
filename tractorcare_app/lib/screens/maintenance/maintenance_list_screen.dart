@@ -7,6 +7,7 @@ import '../../models/tractor.dart';
 import '../../models/maintenance.dart';
 import '../../services/api_service.dart';
 import '../../config/colors.dart';
+import '../../config/app_config.dart';
 
 class MaintenanceListScreen extends StatefulWidget {
   const MaintenanceListScreen({super.key});
@@ -104,6 +105,7 @@ class _MaintenanceListScreenState extends State<MaintenanceListScreen>
       userId: 'system', // Default user for alerts
       type: _mapAlertTypeToMaintenanceType(alert['alert_type']),
       customType: alert['task_name']?.replaceAll('_', ' ')?.toUpperCase(),
+      triggerType: _mapTriggerTypeFromAlert(alert['trigger_type']),
       dueDate: DateTime.tryParse(alert['due_date'] ?? '') ?? DateTime.now(),
       status: _mapAlertStatusToMaintenanceStatus(alert['status']),
       estimatedCost: null,
@@ -135,6 +137,18 @@ class _MaintenanceListScreenState extends State<MaintenanceListScreen>
         return MaintenanceStatus.completed;
       default:
         return MaintenanceStatus.upcoming;
+    }
+  }
+
+  MaintenanceTriggerType _mapTriggerTypeFromAlert(String? triggerType) {
+    switch (triggerType?.toLowerCase()) {
+      case 'abnormal_sound':
+        return MaintenanceTriggerType.abnormalSound;
+      case 'usage_interval':
+        return MaintenanceTriggerType.usageInterval;
+      case 'manual':
+      default:
+        return MaintenanceTriggerType.manual;
     }
   }
 
@@ -457,6 +471,25 @@ class _MaintenanceListScreenState extends State<MaintenanceListScreen>
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
+              // Add Mark Complete button for non-completed maintenance
+              if (!isCompleted) ...[
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: () => _markMaintenanceComplete(maintenance),
+                      icon: const Icon(Icons.check, size: 18),
+                      label: const Text('Mark Complete'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.success,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
@@ -518,5 +551,111 @@ class _MaintenanceListScreenState extends State<MaintenanceListScreen>
         ),
       ),
     );
+  }
+
+  Future<void> _markMaintenanceComplete(Maintenance maintenance) async {
+    try {
+      // Show confirmation dialog
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Complete Maintenance'),
+          content: Text(
+            'Mark "${maintenance.typeString}" as completed?\n\nThis will record the task as finished and move it to completed maintenance history.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.success,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Mark Complete'),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed != true) return;
+
+      // Show loading indicator
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const AlertDialog(
+          content: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 16),
+              Text('Recording maintenance...'),
+            ],
+          ),
+        ),
+      );
+
+      // Record the completed maintenance
+      final maintenanceData = {
+        'tractor_id': maintenance.tractorId,
+        'task_name': maintenance.customType ?? maintenance.typeString,
+        'description': maintenance.notes ?? 'Completed maintenance task',
+        'completion_date': DateTime.now().toIso8601String(),
+        'completion_hours': maintenance.dueAtHours ?? 0.0,
+        'actual_time_minutes': 60, // Default 1 hour
+        'notes': 'Completed via mobile app',
+        'performed_by': 'Mobile App User',
+      };
+
+      await _api.createMaintenance(maintenanceData);
+      
+      // Close loading dialog
+      if (mounted) Navigator.of(context).pop();
+
+      // Show success message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                const SizedBox(width: 8),
+                Text('${maintenance.typeString} marked as complete!'),
+              ],
+            ),
+            backgroundColor: AppColors.success,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+
+      // Refresh the data to reflect the completion
+      await _loadMaintenance();
+      
+    } catch (e) {
+      // Close loading dialog if open
+      if (mounted) Navigator.of(context).pop();
+      
+      // Show error message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.error, color: Colors.white),
+                const SizedBox(width: 8),
+                Text('Failed to complete maintenance: ${e.toString()}'),
+              ],
+            ),
+            backgroundColor: AppColors.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      AppConfig.logError('Failed to complete maintenance', e);
+    }
   }
 }
