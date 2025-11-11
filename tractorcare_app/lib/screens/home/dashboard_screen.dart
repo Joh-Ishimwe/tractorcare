@@ -82,6 +82,10 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
         await tractorProvider.loadRecentPredictions();
         AppConfig.log('Recent predictions loaded for status determination');
         
+        // Evaluate health status for all tractors after loading predictions
+        await tractorProvider.evaluateAllTractorsHealth();
+        AppConfig.log('Health status evaluated for all tractors');
+        
         await _loadMaintenanceActivities();
         await _loadUsageData();
       } else {
@@ -89,6 +93,10 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
         await _loadCachedMaintenanceActivities();
         await _loadCachedUsageData();
         AppConfig.log('Loaded cached dashboard data');
+        
+        // Evaluate health status even in offline mode (uses cached maintenance data)
+        await tractorProvider.evaluateAllTractorsHealth();
+        AppConfig.log('Health status evaluated for all tractors (offline)');
       }
     } catch (e) {
       AppConfig.logError('Failed to fetch dashboard data', e);

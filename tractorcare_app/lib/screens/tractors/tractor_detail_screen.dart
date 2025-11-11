@@ -25,6 +25,7 @@ class TractorDetailScreen extends StatefulWidget {
 class _TractorDetailScreenState extends State<TractorDetailScreen> {
   String? _tractorId;
   bool _isLoading = true;
+  bool _isHealthExpanded = false; // Add state for health section expansion
   final ApiService _apiService = ApiService();
   final StorageService _storageService = StorageService();
   final OfflineSyncService _offlineSyncService = OfflineSyncService();
@@ -357,6 +358,8 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
   }
 
   Widget _buildHeaderCard(Tractor tractor) {
+    final statusColors = _getStatusGradientColors(tractor.status);
+    
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Container(
@@ -364,14 +367,14 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 24.0),
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: AppColors.successGradient,
+            colors: statusColors['gradient'],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: AppColors.success.withValues(alpha: 0.3),
+              color: statusColors['shadow'],
               blurRadius: 12,
               offset: const Offset(0, 6),
             ),
@@ -390,7 +393,7 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
               child: Center(
                 child: Icon(
                   Icons.agriculture,
-                  color: AppColors.success,
+                  color: _getStatusColor(tractor.status),
                   size: 40,
                 ),
               ),
@@ -416,26 +419,6 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w500,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  if (tractor.purchaseYear != null) ...[
-                    Text(
-                      'Purchased: ${tractor.purchaseYear}',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w400,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                  ],
-                  Text(
-                    'Engine Hours: ${tractor.formattedEngineHours}',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w400,
                       color: Colors.white,
                     ),
                   ),
@@ -470,15 +453,6 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                           tractor.statusIcon,
                           style: const TextStyle(fontSize: 16),
                         ),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      tractor.statusText.toUpperCase(),
-                      style: const TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
                       ),
                     ),
                   ],
@@ -1310,155 +1284,189 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Health Status',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.textPrimary,
+            // Health Status Header - Always Visible
+            InkWell(
+              onTap: () {
+                setState(() {
+                  _isHealthExpanded = !_isHealthExpanded;
+                });
+              },
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Health Status',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textPrimary,
+                    ),
                   ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: _getStatusColor(tractor.status).withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
+                  Row(
                     children: [
-                      Text(
-                        tractor.statusIcon,
-                        style: const TextStyle(fontSize: 16),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: _getStatusColor(tractor.status).withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              tractor.statusIcon,
+                              style: const TextStyle(fontSize: 16),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              tractor.statusText.toUpperCase(),
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: _getStatusColor(tractor.status),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      const SizedBox(width: 6),
-                      Text(
-                        tractor.statusText.toUpperCase(),
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: _getStatusColor(tractor.status),
+                      const SizedBox(width: 12),
+                      AnimatedRotation(
+                        turns: _isHealthExpanded ? 0.5 : 0,
+                        duration: const Duration(milliseconds: 200),
+                        child: Icon(
+                          Icons.keyboard_arrow_down,
+                          color: AppColors.textSecondary,
                         ),
                       ),
                     ],
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-            const SizedBox(height: 16),
             
-            // Health metrics
-            Row(
-              children: [
-                Expanded(
-                  child: _buildHealthMetric(
-                    'Engine Hours',
-                    tractor.formattedEngineHours,
-                    Icons.timer,
-                    tractor.engineHours >= 2000 ? AppColors.warning : AppColors.textSecondary,
+            // Expandable Content
+            AnimatedCrossFade(
+              duration: const Duration(milliseconds: 300),
+              crossFadeState: _isHealthExpanded 
+                  ? CrossFadeState.showSecond 
+                  : CrossFadeState.showFirst,
+              firstChild: const SizedBox.shrink(),
+              secondChild: Column(
+                children: [
+                  const SizedBox(height: 16),
+                  
+                  // Health metrics
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildHealthMetric(
+                          'Engine Hours',
+                          tractor.formattedEngineHours,
+                          Icons.timer,
+                          tractor.engineHours >= 2000 ? AppColors.warning : AppColors.textSecondary,
+                        ),
+                      ),
+                      Expanded(
+                        child: _buildHealthMetric(
+                          'Baseline',
+                          tractor.hasBaseline ? 'Complete' : 'Missing',
+                          Icons.analytics,
+                          tractor.hasBaseline ? AppColors.success : AppColors.warning,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                Expanded(
-                  child: _buildHealthMetric(
-                    'Baseline',
-                    tractor.hasBaseline ? 'Complete' : 'Missing',
-                    Icons.analytics,
-                    tractor.hasBaseline ? AppColors.success : AppColors.warning,
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildHealthMetric(
+                          'Purchased Year',
+                          tractor.purchaseYear?.toString() ?? 'Unknown',
+                          Icons.calendar_today,
+                          AppColors.textSecondary,
+                        ),
+                      ),
+                      Expanded(
+                        child: FutureBuilder<Map<String, dynamic>>(
+                          future: _getHealthReport(tractor),
+                          builder: (context, snapshot) {
+                            if (snapshot.hasData) {
+                              final report = snapshot.data!;
+                              final overdueCount = report['overdueMaintenanceCount'] as int;
+                              return _buildHealthMetric(
+                                'Overdue Tasks',
+                                overdueCount.toString(),
+                                Icons.warning,
+                                overdueCount > 0 ? AppColors.error : AppColors.success,
+                              );
+                            }
+                            return _buildHealthMetric(
+                              'Overdue Tasks',
+                              '...',
+                              Icons.warning,
+                              AppColors.textSecondary,
+                            );
+                          },
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildHealthMetric(
-                    'Last Check',
-                    tractor.timeSinceLastCheck,
-                    Icons.schedule,
-                    AppColors.textSecondary,
-                  ),
-                ),
-                Expanded(
-                  child: FutureBuilder<Map<String, dynamic>>(
+                  
+                  const SizedBox(height: 16),
+                  
+                  // Health recommendations
+                  FutureBuilder<Map<String, dynamic>>(
                     future: _getHealthReport(tractor),
                     builder: (context, snapshot) {
                       if (snapshot.hasData) {
                         final report = snapshot.data!;
-                        final overdueCount = report['overdueMaintenanceCount'] as int;
-                        return _buildHealthMetric(
-                          'Overdue Tasks',
-                          overdueCount.toString(),
-                          Icons.warning,
-                          overdueCount > 0 ? AppColors.error : AppColors.success,
-                        );
-                      }
-                      return _buildHealthMetric(
-                        'Overdue Tasks',
-                        '...',
-                        Icons.warning,
-                        AppColors.textSecondary,
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-            
-            const SizedBox(height: 16),
-            
-            // Health recommendations
-            FutureBuilder<Map<String, dynamic>>(
-              future: _getHealthReport(tractor),
-              builder: (context, snapshot) {
-                if (snapshot.hasData) {
-                  final report = snapshot.data!;
-                  final recommendations = report['recommendations'] as List<String>;
-                  if (recommendations.isNotEmpty) {
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Recommendations',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        ...recommendations.take(2).map((rec) => Padding(
-                          padding: const EdgeInsets.only(bottom: 4),
-                          child: Row(
+                        final recommendations = report['recommendations'] as List<String>;
+                        if (recommendations.isNotEmpty) {
+                          return Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text('• ', style: TextStyle(color: AppColors.textSecondary)),
-                              Expanded(
-                                child: Text(
-                                  rec,
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: AppColors.textSecondary,
-                                  ),
+                              const Text(
+                                'Recommendations',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.textPrimary,
                                 ),
                               ),
+                              const SizedBox(height: 8),
+                              ...recommendations.take(2).map((rec) => Padding(
+                                padding: const EdgeInsets.only(bottom: 4),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('• ', style: TextStyle(color: AppColors.textSecondary)),
+                                    Expanded(
+                                      child: Text(
+                                        rec,
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: AppColors.textSecondary,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )).toList(),
+                              if (recommendations.length > 2)
+                                TextButton(
+                                  onPressed: () => _showHealthReportDialog(tractor),
+                                  child: const Text('View Full Report'),
+                                ),
                             ],
-                          ),
-                        )).toList(),
-                        if (recommendations.length > 2)
-                          TextButton(
-                            onPressed: () => _showHealthReportDialog(tractor),
-                            child: const Text('View Full Report'),
-                          ),
-                      ],
-                    );
-                  }
-                }
-                return const SizedBox.shrink();
-              },
+                          );
+                        }
+                      }
+                      return const SizedBox.shrink();
+                    },
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -1507,6 +1515,40 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
         return AppColors.error;
       default:
         return AppColors.textTertiary;
+    }
+  }
+
+  Map<String, dynamic> _getStatusGradientColors(TractorStatus status) {
+    switch (status) {
+      case TractorStatus.good:
+        return {
+          'gradient': AppColors.successGradient,
+          'shadow': AppColors.success.withValues(alpha: 0.3),
+        };
+      case TractorStatus.warning:
+        return {
+          'gradient': [
+            const Color(0xFFFFB347), // Light orange
+            const Color(0xFFFF8C42), // Darker orange
+          ],
+          'shadow': AppColors.warning.withValues(alpha: 0.3),
+        };
+      case TractorStatus.critical:
+        return {
+          'gradient': [
+            const Color(0xFFFF6B6B), // Light red
+            const Color(0xFFE55353), // Darker red
+          ],
+          'shadow': AppColors.error.withValues(alpha: 0.3),
+        };
+      default:
+        return {
+          'gradient': [
+            const Color(0xFF9E9E9E), // Light gray
+            const Color(0xFF757575), // Darker gray
+          ],
+          'shadow': AppColors.textTertiary.withValues(alpha: 0.3),
+        };
     }
   }
 

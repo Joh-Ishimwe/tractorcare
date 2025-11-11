@@ -284,14 +284,14 @@ class TractorProvider with ChangeNotifier {
     return _tractors.where((t) => t.status == status).toList();
   }
 
-  // Get critical tractors (based on recent abnormal predictions)
+  // Get critical tractors (based on health status)
   List<Tractor> getCriticalTractors() {
-    return _tractors.where((tractor) => _hasCriticalPredictions(tractor.tractorId)).toList();
+    return getTractorsByStatus(TractorStatus.critical);
   }
 
-  // Get warning tractors (based on recent warning-level predictions)
+  // Get warning tractors (based on health status)
   List<Tractor> getWarningTractors() {
-    return _tractors.where((tractor) => _hasWarningPredictions(tractor.tractorId)).toList();
+    return getTractorsByStatus(TractorStatus.warning);
   }
 
   // Get the tractor with the most recent critical issue (for navigation)
@@ -299,24 +299,9 @@ class TractorProvider with ChangeNotifier {
     final criticalTractors = getCriticalTractors();
     if (criticalTractors.isEmpty) return null;
     
-    // Find the tractor with the most recent abnormal prediction
-    Tractor? mostRecentCritical;
-    DateTime? latestAbnormalTime;
-    
-    for (final tractor in criticalTractors) {
-      final predictions = _recentPredictions[tractor.tractorId] ?? [];
-      if (predictions.isNotEmpty) {
-        final mostRecentPrediction = predictions.first;
-        if (mostRecentPrediction.predictionClass == PredictionClass.abnormal) {
-          if (latestAbnormalTime == null || mostRecentPrediction.createdAt.isAfter(latestAbnormalTime)) {
-            latestAbnormalTime = mostRecentPrediction.createdAt;
-            mostRecentCritical = tractor;
-          }
-        }
-      }
-    }
-    
-    return mostRecentCritical;
+    // Return the most recently checked critical tractor
+    return criticalTractors.reduce((a, b) => 
+      (a.lastCheckDate ?? DateTime(1970)).isAfter(b.lastCheckDate ?? DateTime(1970)) ? a : b);
   }
 
   // Get the tractor with the most recent warning issue (for navigation) 
@@ -324,24 +309,9 @@ class TractorProvider with ChangeNotifier {
     final warningTractors = getWarningTractors();
     if (warningTractors.isEmpty) return null;
     
-    // Find the tractor with the most recent warning prediction
-    Tractor? mostRecentWarning;
-    DateTime? latestWarningTime;
-    
-    for (final tractor in warningTractors) {
-      final predictions = _recentPredictions[tractor.tractorId] ?? [];
-      if (predictions.isNotEmpty) {
-        final mostRecentPrediction = predictions.first;
-        if (mostRecentPrediction.predictionClass == PredictionClass.abnormal) {
-          if (latestWarningTime == null || mostRecentPrediction.createdAt.isAfter(latestWarningTime)) {
-            latestWarningTime = mostRecentPrediction.createdAt;
-            mostRecentWarning = tractor;
-          }
-        }
-      }
-    }
-    
-    return mostRecentWarning;
+    // Return the most recently checked warning tractor
+    return warningTractors.reduce((a, b) => 
+      (a.lastCheckDate ?? DateTime(1970)).isAfter(b.lastCheckDate ?? DateTime(1970)) ? a : b);
   }
 
   // Get good tractors
