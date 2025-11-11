@@ -310,7 +310,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
     final firstWeekday = (firstDayOfMonth.weekday % 7); // Convert Monday=1,Sunday=7 to Sunday=0,Monday=1
     final daysInMonth = lastDayOfMonth.day;
 
-    return Expanded(
+    return SizedBox(
+      height: 350, // Fixed height for calendar grid
       child: Column(
         children: [
           // Days of week header
@@ -333,9 +334,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
             ),
           ),
           // Calendar grid
-          Expanded(
+          SizedBox(
+            height: 280, // Fixed height for 6 weeks of calendar (42 cells * ~47px per cell)
             child: GridView.builder(
               padding: const EdgeInsets.symmetric(horizontal: 16),
+              physics: const NeverScrollableScrollPhysics(), // Disable grid scrolling within SingleChildScrollView
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 7,
                 childAspectRatio: 1,
@@ -505,6 +508,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
         onRefresh: _loadEvents,
         child: SingleChildScrollView(
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
               // Header + Schedule Button
               Padding(
