@@ -3,9 +3,11 @@
 import 'package:flutter/material.dart';
 import '../models/tractor.dart';
 import '../models/audio_prediction.dart';
+import '../models/maintenance.dart';
 import '../services/api_service.dart';
 import '../services/storage_service.dart';
 import '../services/offline_sync_service.dart';
+import '../services/health_evaluation_service.dart';
 
 class TractorProvider with ChangeNotifier {
   final ApiService _api = ApiService(); // Now using singleton
@@ -65,6 +67,20 @@ class TractorProvider with ChangeNotifier {
     _clearError();
 
     try {
+      // First, try to find the tractor in our current list to preserve health status
+      try {
+        final existingTractor = _tractors.firstWhere(
+          (t) => t.tractorId == tractorId,
+        );
+        
+        // Use existing tractor from list (preserves health status)
+        _selectedTractor = existingTractor;
+        _setLoading(false);
+        return;
+      } catch (e) {
+        // Tractor not in current list, fetch from API
+      }
+
       if (_offlineSync.isOnline) {
         // Fetch from API
         _selectedTractor = await _api.getTractor(tractorId);
@@ -154,6 +170,9 @@ class TractorProvider with ChangeNotifier {
     }
     
     _recentPredictions[tractorId] = updatedPredictions;
+    
+    // Automatically evaluate health status when new prediction is added
+    evaluateTractorHealth(tractorId);
     
     // Notify listeners to update the dashboard critical status immediately
     notifyListeners();
@@ -486,6 +505,104 @@ class TractorProvider with ChangeNotifier {
       pendingItems.removeAt(index);
       await _storage.savePendingSyncItems(pendingItems);
       notifyListeners();
+    }
+  }
+
+  // Evaluate and update health status for a tractor
+  Future<TractorStatus> evaluateTractorHealth(String tractorId) async {
+    try {
+      // Get the tractor
+      final tractor = _tractors.firstWhere((t) => t.tractorId == tractorId);
+      
+      // Get maintenance alerts for this tractor
+      List<Maintenance> maintenanceAlerts = [];
+      try {
+        final alertsData = await _api.getMaintenanceAlerts(tractorId);
+        maintenanceAlerts = alertsData.map((alert) => Maintenance.fromJson(alert)).toList();
+      } catch (e) {
+        print('Failed to get maintenance alerts for health evaluation: $e');
+      }
+
+      // Get recent predictions for this tractor
+      final recentPredictions = _recentPredictions[tractorId] ?? [];
+
+      // Evaluate health status
+      final newStatus = HealthEvaluationService.evaluateHealthStatus(
+        tractor: tractor,
+        maintenanceAlerts: maintenanceAlerts,
+        recentPredictions: recentPredictions,
+      );
+
+      // Update tractor status if it changed
+      if (tractor.status != newStatus) {
+        final updatedTractor = tractor.copyWith(
+          status: newStatus,
+          lastCheckDate: DateTime.now(),
+        );
+
+        // Update in the list
+        final tractorIndex = _tractors.indexWhere((t) => t.tractorId == tractorId);
+        if (tractorIndex != -1) {
+          _tractors[tractorIndex] = updatedTractor;
+          
+          // Update selected tractor if it's the same one
+          if (_selectedTractor?.tractorId == tractorId) {
+            _selectedTractor = updatedTractor;
+          }
+          
+          notifyListeners();
+        }
+
+        print('🔄 Health status updated for $tractorId: ${tractor.status.name} → ${newStatus.name}');
+      }
+
+      return newStatus;
+    } catch (e) {
+      print('Failed to evaluate health for tractor $tractorId: $e');
+      return TractorStatus.unknown;
+    }
+  }
+
+  // Evaluate health for all tractors
+  Future<void> evaluateAllTractorsHealth() async {
+    for (final tractor in _tractors) {
+      await evaluateTractorHealth(tractor.tractorId);
+    }
+  }
+
+  // Get health report for a tractor
+  Future<Map<String, dynamic>> getTractorHealthReport(String tractorId) async {
+    try {
+      final tractor = _tractors.firstWhere((t) => t.tractorId == tractorId);
+      
+      // Get maintenance alerts
+      List<Maintenance> maintenanceAlerts = [];
+      try {
+        final alertsData = await _api.getMaintenanceAlerts(tractorId);
+        maintenanceAlerts = alertsData.map((alert) => Maintenance.fromJson(alert)).toList();
+      } catch (e) {
+        print('Failed to get maintenance alerts for health report: $e');
+      }
+
+      // Get recent predictions
+      final recentPredictions = _recentPredictions[tractorId] ?? [];
+
+      return HealthEvaluationService.getHealthReport(
+        tractor: tractor,
+        maintenanceAlerts: maintenanceAlerts,
+        recentPredictions: recentPredictions,
+      );
+    } catch (e) {
+      print('Failed to generate health report for $tractorId: $e');
+      return {
+        'status': TractorStatus.unknown,
+        'overdueMaintenanceCount': 0,
+        'recentAbnormalSounds': 0,
+        'engineHours': 0.0,
+        'hasBaseline': false,
+        'lastCheckDate': null,
+        'recommendations': ['Unable to generate health report'],
+      };
     }
   }
 

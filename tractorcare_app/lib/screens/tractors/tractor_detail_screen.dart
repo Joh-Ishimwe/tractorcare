@@ -75,6 +75,9 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
       
       // Update _tractorId to use the actual tractor ID for subsequent calls
       _tractorId = actualTractorId;
+      
+      // Evaluate health status after loading all data
+      await tractorProvider.evaluateTractorHealth(actualTractorId);
     }
     
     // Load maintenance summary and alerts
@@ -330,6 +333,11 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
 
                         const SizedBox(height: 16),
 
+                        // Health Report
+                        _buildHealthReportCard(tractor),
+
+                        const SizedBox(height: 16),
+
                         // Maintenance alerts
                         _buildMaintenanceAlertsCard(),
 
@@ -457,10 +465,20 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child: const Icon(
-                        Icons.check_circle,
-                        color: AppColors.success,
-                        size: 20,
+                      child: Center(
+                        child: Text(
+                          tractor.statusIcon,
+                          style: const TextStyle(fontSize: 16),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      tractor.statusText.toUpperCase(),
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
                       ),
                     ),
                   ],
@@ -1282,6 +1300,281 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
       }
       AppConfig.logError('Failed to complete maintenance', e);
     }
+  }
+
+  Widget _buildHealthReportCard(Tractor tractor) {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Health Status',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: _getStatusColor(tractor.status).withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        tractor.statusIcon,
+                        style: const TextStyle(fontSize: 16),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        tractor.statusText.toUpperCase(),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: _getStatusColor(tractor.status),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            
+            // Health metrics
+            Row(
+              children: [
+                Expanded(
+                  child: _buildHealthMetric(
+                    'Engine Hours',
+                    tractor.formattedEngineHours,
+                    Icons.timer,
+                    tractor.engineHours >= 2000 ? AppColors.warning : AppColors.textSecondary,
+                  ),
+                ),
+                Expanded(
+                  child: _buildHealthMetric(
+                    'Baseline',
+                    tractor.hasBaseline ? 'Complete' : 'Missing',
+                    Icons.analytics,
+                    tractor.hasBaseline ? AppColors.success : AppColors.warning,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildHealthMetric(
+                    'Last Check',
+                    tractor.timeSinceLastCheck,
+                    Icons.schedule,
+                    AppColors.textSecondary,
+                  ),
+                ),
+                Expanded(
+                  child: FutureBuilder<Map<String, dynamic>>(
+                    future: _getHealthReport(tractor),
+                    builder: (context, snapshot) {
+                      if (snapshot.hasData) {
+                        final report = snapshot.data!;
+                        final overdueCount = report['overdueMaintenanceCount'] as int;
+                        return _buildHealthMetric(
+                          'Overdue Tasks',
+                          overdueCount.toString(),
+                          Icons.warning,
+                          overdueCount > 0 ? AppColors.error : AppColors.success,
+                        );
+                      }
+                      return _buildHealthMetric(
+                        'Overdue Tasks',
+                        '...',
+                        Icons.warning,
+                        AppColors.textSecondary,
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+            
+            const SizedBox(height: 16),
+            
+            // Health recommendations
+            FutureBuilder<Map<String, dynamic>>(
+              future: _getHealthReport(tractor),
+              builder: (context, snapshot) {
+                if (snapshot.hasData) {
+                  final report = snapshot.data!;
+                  final recommendations = report['recommendations'] as List<String>;
+                  if (recommendations.isNotEmpty) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Recommendations',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        ...recommendations.take(2).map((rec) => Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('• ', style: TextStyle(color: AppColors.textSecondary)),
+                              Expanded(
+                                child: Text(
+                                  rec,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        )).toList(),
+                        if (recommendations.length > 2)
+                          TextButton(
+                            onPressed: () => _showHealthReportDialog(tractor),
+                            child: const Text('View Full Report'),
+                          ),
+                      ],
+                    );
+                  }
+                }
+                return const SizedBox.shrink();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHealthMetric(String label, String value, IconData icon, Color color) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 16, color: color),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppColors.textSecondary,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: color,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Color _getStatusColor(TractorStatus status) {
+    switch (status) {
+      case TractorStatus.good:
+        return AppColors.success;
+      case TractorStatus.warning:
+        return AppColors.warning;
+      case TractorStatus.critical:
+        return AppColors.error;
+      default:
+        return AppColors.textTertiary;
+    }
+  }
+
+  Future<Map<String, dynamic>> _getHealthReport(Tractor tractor) async {
+    final provider = Provider.of<TractorProvider>(context, listen: false);
+    return await provider.getTractorHealthReport(tractor.tractorId);
+  }
+
+  void _showHealthReportDialog(Tractor tractor) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Text(tractor.statusIcon, style: const TextStyle(fontSize: 24)),
+            const SizedBox(width: 8),
+            const Text('Health Report'),
+          ],
+        ),
+        content: FutureBuilder<Map<String, dynamic>>(
+          future: _getHealthReport(tractor),
+          builder: (context, snapshot) {
+            if (snapshot.hasData) {
+              final report = snapshot.data!;
+              final recommendations = report['recommendations'] as List<String>;
+              return SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Status: ${tractor.statusText}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: _getStatusColor(tractor.status),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Recommendations:',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 8),
+                    ...recommendations.map((rec) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('• '),
+                          Expanded(child: Text(rec)),
+                        ],
+                      ),
+                    )).toList(),
+                  ],
+                ),
+              );
+            }
+            return const CircularProgressIndicator();
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
 
 }

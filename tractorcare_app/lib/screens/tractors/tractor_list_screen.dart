@@ -31,6 +31,9 @@ class _TractorListScreenState extends State<TractorListScreen> {
   Future<void> _loadTractors() async {
     final tractorProvider = Provider.of<TractorProvider>(context, listen: false);
     await tractorProvider.fetchTractors();
+    
+    // Evaluate health status for all tractors after loading
+    await tractorProvider.evaluateAllTractorsHealth();
   }
 
   List<Tractor> _filterTractors(List<Tractor> tractors) {
