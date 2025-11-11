@@ -651,8 +651,10 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
     List<dynamic> maintenanceItems = [];
     
     if (_maintenanceAlerts != null && _maintenanceAlerts!.isNotEmpty) {
-      // Sort alerts by due date (most urgent first)
+      // Filter out completed alerts and sort by due date (most urgent first)
       final sortedAlerts = List<dynamic>.from(_maintenanceAlerts!)
+          .where((alert) => alert['status'] != 'completed')
+          .toList()
         ..sort((a, b) {
           final aDate = DateTime.tryParse(a['due_date']?.toString() ?? '') ?? DateTime.now().add(const Duration(days: 365));
           final bDate = DateTime.tryParse(b['due_date']?.toString() ?? '') ?? DateTime.now().add(const Duration(days: 365));
@@ -675,30 +677,9 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
         'description': alert.description,
         'trigger_type': 'manual', // Default for existing data
       }).toList();
-    } else {
-      // Default maintenance items when no data is available
-      final now = DateTime.now();
-      maintenanceItems = [
-        {
-          'task_name': 'Engine Oil Change',
-          'due_date': now.add(const Duration(days: 15)).toIso8601String(),
-          'description': 'Engine oil and filter replacement',
-          'trigger_type': 'usage_interval',
-        },
-        {
-          'task_name': 'Abnormal Sound Investigation',
-          'due_date': now.add(const Duration(days: 3)).toIso8601String(),
-          'description': 'Check engine components due to detected abnormal sound',
-          'trigger_type': 'abnormal_sound',
-        },
-        {
-          'task_name': 'Air Filter Check',
-          'due_date': now.add(const Duration(days: 30)).toIso8601String(),
-          'description': 'Inspect and replace air filter if needed',
-          'trigger_type': 'manual',
-        },
-      ];
     }
+    
+    // No default maintenance items for new tractors - keep empty if no real alerts exist
 
     // Categorize maintenance items
     final abnormalSoundItems = maintenanceItems.where((item) => 
@@ -709,40 +690,51 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
       (item['trigger_type']?.toString() ?? 'manual') != 'abnormal_sound'
     ).toList();
 
-    // Show at least 2 items total, but prioritize abnormal sound items
+    // If no maintenance items, show empty state
+    if (maintenanceItems.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            children: [
+              Icon(
+                Icons.check_circle_outline,
+                size: 48,
+                color: AppColors.success,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'No upcoming maintenance',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'All maintenance tasks are up to date',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Show maintenance items (limited to 3 items total)
     List<dynamic> itemsToShow = [];
     
     // Add abnormal sound items first (these are more urgent)
     itemsToShow.addAll(abnormalSoundItems.take(2));
     
-    // Fill remaining slots with routine maintenance (at least 1, up to 2 total)
+    // Fill remaining slots with routine maintenance
     final remainingSlots = 3 - itemsToShow.length;
     if (remainingSlots > 0) {
       itemsToShow.addAll(routineItems.take(remainingSlots));
-    }
-    
-    // If we still don't have at least 2 items, add defaults
-    if (itemsToShow.length < 2) {
-      final now = DateTime.now();
-      final defaultRoutineItems = [
-        {
-          'task_name': 'Engine Oil Change',
-          'due_date': now.add(const Duration(days: 15)).toIso8601String(),
-          'description': 'Engine oil and filter replacement',
-          'trigger_type': 'usage_interval',
-        },
-        {
-          'task_name': 'General Inspection',
-          'due_date': now.add(const Duration(days: 60)).toIso8601String(),
-          'description': 'Routine maintenance inspection',
-          'trigger_type': 'manual',
-        },
-      ];
-      
-      for (final defaultItem in defaultRoutineItems) {
-        if (itemsToShow.length >= 2) break;
-        itemsToShow.add(defaultItem);
-      }
     }
 
     return Column(
@@ -754,18 +746,16 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
           const SizedBox(height: 8),
           ...abnormalSoundItems.take(2).map<Widget>((maintenance) => 
             _buildMaintenanceItem(maintenance, isAbnormalSound: true)),
-          const SizedBox(height: 12),
+          if (routineItems.isNotEmpty) const SizedBox(height: 12),
         ],
         
-        if (routineItems.isNotEmpty || abnormalSoundItems.isEmpty) ...[
+        if (routineItems.isNotEmpty) ...[
           if (abnormalSoundItems.isNotEmpty) 
             _buildCategoryHeader('⚙️ Normal Routine', Colors.blue)
           else
             _buildCategoryHeader('⚙️ Upcoming Maintenance', Colors.blue),
           const SizedBox(height: 8),
-          ...itemsToShow.where((item) => 
-            (item['trigger_type']?.toString() ?? 'manual') != 'abnormal_sound'
-          ).take(2).map<Widget>((maintenance) => 
+          ...routineItems.take(abnormalSoundItems.isEmpty ? 3 : 2).map<Widget>((maintenance) => 
             _buildMaintenanceItem(maintenance, isAbnormalSound: false)),
         ],
       ],
