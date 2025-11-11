@@ -17,6 +17,7 @@ class TractorProvider with ChangeNotifier {
   List<Tractor> _tractors = [];
   Tractor? _selectedTractor;
   bool _isLoading = false;
+  bool _isEvaluatingHealth = false; // Track health evaluation state
   String? _error;
   
   // Store recent predictions for each tractor
@@ -25,6 +26,7 @@ class TractorProvider with ChangeNotifier {
   List<Tractor> get tractors => _tractors;
   Tractor? get selectedTractor => _selectedTractor;
   bool get isLoading => _isLoading;
+  bool get isEvaluatingHealth => _isEvaluatingHealth;
   String? get error => _error;
 
   // Fetch all tractors with offline support
@@ -36,11 +38,16 @@ class TractorProvider with ChangeNotifier {
       // OPTIMIZATION: Load cached data first for immediate display
       if (_tractors.isEmpty) {
         try {
-          _tractors = await _storage.getTractorsOffline();
-          if (_tractors.isNotEmpty) {
+          final cachedTractors = await _storage.getTractorsOffline();
+          if (cachedTractors.isNotEmpty) {
+            // Reset status to unknown for cached tractors until health evaluation completes
+            _tractors = cachedTractors.map((tractor) => tractor.copyWith(
+              status: TractorStatus.unknown,
+            )).toList();
             _setLoading(false); // Show cached data immediately
+            _isEvaluatingHealth = true; // Mark that we're about to evaluate health
             notifyListeners();
-            print('🚀 Loaded ${_tractors.length} tractors from cache for immediate display');
+            print('🚀 Loaded ${_tractors.length} tractors from cache for immediate display (status reset to unknown)');
           }
         } catch (e) {
           print('No cached tractors available: $e');
@@ -553,6 +560,9 @@ class TractorProvider with ChangeNotifier {
       return;
     }
 
+    _isEvaluatingHealth = true;
+    notifyListeners(); // Notify UI that health evaluation is starting
+
     print('🔍 Starting health evaluation for ${_tractors.length} tractors');
     
     // Process tractors in smaller batches to avoid blocking UI
@@ -570,6 +580,9 @@ class TractorProvider with ChangeNotifier {
         await Future.delayed(const Duration(milliseconds: 50));
       }
     }
+    
+    _isEvaluatingHealth = false;
+    notifyListeners(); // Notify UI that health evaluation is complete
     
     print('✅ Health evaluation completed for all tractors');
   }

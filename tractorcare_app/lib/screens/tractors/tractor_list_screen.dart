@@ -210,29 +210,34 @@ class _TractorListScreenState extends State<TractorListScreen> {
   }
 
   Widget _buildTractorCard(Tractor tractor) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: SimpleTractorCard(
-        tractorModel: tractor.model,
-        tractorId: tractor.tractorId,
-        statusText: tractor.statusText,
-        statusColor: _getStatusColor(tractor.status),
-        tractorIcon: Icons.agriculture,
-        onTap: () {
-          print('🚜 Tractor List: Navigating to tractor detail');
-          print('   - Tractor ID (tractorId): ${tractor.tractorId}');
-          print('   - Database ID (id): ${tractor.id}');
-          print('   - Using tractorId for navigation: ${tractor.tractorId}');
-          
-          Navigator.pushNamed(
-            context,
-            '/tractor-detail',
-            arguments: tractor.tractorId,
-          ).then((_) {
-            _loadTractors();
-          });
-        },
-      ),
+    return Consumer<TractorProvider>(
+      builder: (context, provider, child) {
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: SimpleTractorCard(
+            tractorModel: tractor.model,
+            tractorId: tractor.tractorId,
+            statusText: tractor.statusText,
+            statusColor: _getStatusColor(tractor.status),
+            tractorIcon: Icons.agriculture,
+            isEvaluatingHealth: provider.isEvaluatingHealth,
+            onTap: () {
+              print('🚜 Tractor List: Navigating to tractor detail');
+              print('   - Tractor ID (tractorId): ${tractor.tractorId}');
+              print('   - Database ID (id): ${tractor.id}');
+              print('   - Using tractorId for navigation: ${tractor.tractorId}');
+              
+              Navigator.pushNamed(
+                context,
+                '/tractor-detail',
+                arguments: tractor.tractorId,
+              ).then((_) {
+                _loadTractors();
+              });
+            },
+          ),
+        );
+      },
     );
   }
 

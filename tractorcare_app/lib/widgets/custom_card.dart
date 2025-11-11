@@ -534,6 +534,7 @@ class SimpleTractorCard extends StatelessWidget {
   final Color statusColor;
   final IconData tractorIcon;
   final VoidCallback? onTap;
+  final bool isEvaluatingHealth;
 
   const SimpleTractorCard({
     super.key,
@@ -543,6 +544,7 @@ class SimpleTractorCard extends StatelessWidget {
     required this.statusColor,
     this.tractorIcon = Icons.agriculture,
     this.onTap,
+    this.isEvaluatingHealth = false,
   });
 
   @override
@@ -618,14 +620,37 @@ class SimpleTractorCard extends StatelessWidget {
                 color: statusColor.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Text(
-                statusText,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: statusColor,
-                ),
-              ),
+              child: isEvaluatingHealth && statusText == 'Unknown'
+                  ? Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 12,
+                          height: 12,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(statusColor),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Checking...',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: statusColor,
+                          ),
+                        ),
+                      ],
+                    )
+                  : Text(
+                      statusText,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: statusColor,
+                      ),
+                    ),
             ),
           ],
         ),

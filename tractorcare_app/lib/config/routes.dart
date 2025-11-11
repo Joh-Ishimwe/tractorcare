@@ -51,7 +51,8 @@ class AppRoutes {
   static const String pendingSync = '/pending-sync';
 
   static Map<String, WidgetBuilder> get routes => {
-        splash: (context) => const SplashScreen(),
+        // Remove splash route since we use home: AuthWrapper() instead
+        // splash: (context) => const SplashScreen(),
         login: (context) => const LoginScreen(),
         register: (context) => const RegisterScreen(),
         dashboard: (context) => const DashboardScreen(),

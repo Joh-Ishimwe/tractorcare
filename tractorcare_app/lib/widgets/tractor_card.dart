@@ -7,11 +7,13 @@ import '../config/colors.dart';
 class TractorCard extends StatelessWidget {
   final Tractor tractor;
   final VoidCallback? onTap;
+  final bool isEvaluatingHealth;
 
   const TractorCard({
     super.key,
     required this.tractor,
     this.onTap,
+    this.isEvaluatingHealth = false,
   });
 
   @override
@@ -111,14 +113,37 @@ class TractorCard extends StatelessWidget {
                   color: statusColor.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: Text(
-                  tractor.statusText,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: statusColor,
-                  ),
-                ),
+                child: isEvaluatingHealth && tractor.status == TractorStatus.unknown
+                    ? Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 12,
+                            height: 12,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(statusColor),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Checking...',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: statusColor,
+                            ),
+                          ),
+                        ],
+                      )
+                    : Text(
+                        tractor.statusText,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: statusColor,
+                        ),
+                      ),
               ),
             ],
           ),
@@ -144,11 +169,13 @@ class TractorCard extends StatelessWidget {
 class CompactTractorCard extends StatelessWidget {
   final Tractor tractor;
   final VoidCallback? onTap;
+  final bool isEvaluatingHealth;
 
   const CompactTractorCard({
     super.key,
     required this.tractor,
     this.onTap,
+    this.isEvaluatingHealth = false,
   });
 
   @override
@@ -194,14 +221,37 @@ class CompactTractorCard extends StatelessWidget {
                   color: statusColor.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Text(
-                  tractor.statusText,
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                    color: statusColor,
-                  ),
-                ),
+                child: isEvaluatingHealth && tractor.status == TractorStatus.unknown
+                    ? Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 10,
+                            height: 10,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 1.5,
+                              valueColor: AlwaysStoppedAnimation<Color>(statusColor),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Checking...',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: statusColor,
+                            ),
+                          ),
+                        ],
+                      )
+                    : Text(
+                        tractor.statusText,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: statusColor,
+                        ),
+                      ),
               ),
             ],
           ),

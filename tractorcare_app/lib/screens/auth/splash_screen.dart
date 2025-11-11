@@ -42,17 +42,15 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _checkAuthAndNavigate() async {
-    // Wait for animation to complete
-    await Future.delayed(const Duration(seconds: 2));
+    // Minimal delay for animation only
+    await Future.delayed(const Duration(milliseconds: 1500));
 
     if (!mounted) return;
 
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final isLoggedIn = await authProvider.checkAuth();
-
-    if (!mounted) return;
-
-    if (isLoggedIn) {
+    
+    // Auth is already checked, just navigate based on current state
+    if (authProvider.isAuthenticated) {
       Navigator.pushReplacementNamed(context, '/dashboard');
     } else {
       Navigator.pushReplacementNamed(context, '/login');

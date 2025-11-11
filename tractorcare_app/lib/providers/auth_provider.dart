@@ -9,19 +9,38 @@ class AuthProvider with ChangeNotifier {
   final AuthService _authService = AuthService();
 
   User? _currentUser;
-  bool _isLoading = false;
+  bool _isLoading = true; // Start with loading = true
+  bool _isInitialized = false; // Track if provider is initialized
   String? _error;
 
   User? get currentUser => _currentUser;
   bool get isLoading => _isLoading;
+  bool get isInitialized => _isInitialized;
   String? get error => _error;
-  bool get isAuthenticated => _currentUser != null;
+  bool get isAuthenticated => _currentUser != null && _isInitialized;
 
-  // Initialize provider
+  // Initialize provider - called immediately on app start
   Future<void> init() async {
-    await _authService.init();
-    _currentUser = _authService.currentUser;
-    notifyListeners();
+    _setLoading(true);
+    try {
+      await _authService.init();
+      _currentUser = _authService.currentUser;
+      
+      // If we have a stored user, validate the session
+      if (_currentUser != null) {
+        final isValid = await _authService.checkAuth();
+        if (!isValid) {
+          _currentUser = null;
+        }
+      }
+      
+      _isInitialized = true;
+      _setLoading(false);
+    } catch (e) {
+      _isInitialized = true;
+      _setError(e.toString());
+      _setLoading(false);
+    }
   }
 
   // Check authentication status
