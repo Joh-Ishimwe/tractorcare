@@ -239,14 +239,24 @@ class BaselineService:
         baseline_std: np.ndarray
     ) -> Dict:
         """Calculate how much new audio deviates from baseline"""
+        # Flatten MFCC arrays to 1D for comparison (handle 2D MFCC features)
+        if new_mfcc.ndim == 2:
+            new_mfcc = new_mfcc.flatten()
+        if baseline_mean.ndim == 2:
+            baseline_mean = baseline_mean.flatten()
+        if baseline_std.ndim == 2:
+            baseline_std = baseline_std.flatten()
+            
         # Ensure same length
-        min_len = min(len(new_mfcc), len(baseline_mean))
+        min_len = min(len(new_mfcc), len(baseline_mean), len(baseline_std))
         new_mfcc = new_mfcc[:min_len]
         baseline_mean = baseline_mean[:min_len]
         baseline_std = baseline_std[:min_len]
         
-        # Calculate z-scores (number of standard deviations away)
+        # Avoid division by zero - replace zero std with small value
         baseline_std = np.where(baseline_std == 0, 1e-6, baseline_std)
+        
+        # Calculate z-scores (number of standard deviations away)
         z_scores = np.abs((new_mfcc - baseline_mean) / baseline_std)
         
         # Calculate metrics

@@ -183,10 +183,11 @@ async def upload_audio(
         
         # Determine final values
         if has_baseline and combined_analysis:
-            # Use combined analysis
+            # Use combined analysis for classification, but keep original ML confidence
             final_class = combined_analysis["status"]
-            final_confidence = combined_analysis["combined_score"]
-            final_anomaly_score = combined_analysis["combined_score"]
+            # Fix: Use original ML confidence, not combined score
+            final_confidence = prediction_result["confidence"]
+            final_anomaly_score = prediction_result.get("anomaly_score", 0.0)
             final_model = "ResNet_with_Baseline"
         else:
             # Use ResNet only
@@ -196,7 +197,12 @@ async def upload_audio(
             final_model = "ResNet_Transfer_Learning"
         
         # Map status to prediction_class (normal/abnormal)
-        if final_class in ["normal"]:
+        # Handle both string values and TrendStatus enum values
+        final_class_str = str(final_class).lower()
+        if hasattr(final_class, 'value'):
+            final_class_str = final_class.value.lower()
+        
+        if final_class_str in ["normal", "watch"]:
             prediction_class = "normal"
         else:
             prediction_class = "abnormal"
