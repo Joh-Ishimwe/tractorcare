@@ -222,6 +222,11 @@ class BaselineService:
         baseline_mean = np.mean(mfcc_matrix, axis=0)
         baseline_std = np.std(mfcc_matrix, axis=0)
         
+        # CRITICAL FIX: Ensure minimum standard deviation to prevent astronomical z-scores
+        # When baseline samples are very similar (good!), std approaches 0, causing huge deviations
+        min_std = 0.1  # Minimum reasonable standard deviation for audio features
+        baseline_std = np.maximum(baseline_std, min_std)
+        
         # Calculate confidence based on consistency
         avg_std = np.mean(baseline_std)
         confidence = max(0.5, min(1.0, 1.0 - (avg_std / 10.0)))
@@ -254,7 +259,8 @@ class BaselineService:
         baseline_std = baseline_std[:min_len]
         
         # Avoid division by zero - replace zero std with small value
-        baseline_std = np.where(baseline_std == 0, 1e-6, baseline_std)
+        # CRITICAL FIX: Also handle extremely small std values from old baselines
+        baseline_std = np.where(baseline_std < 0.01, 0.1, baseline_std)
         
         # Calculate z-scores (number of standard deviations away)
         z_scores = np.abs((new_mfcc - baseline_mean) / baseline_std)
