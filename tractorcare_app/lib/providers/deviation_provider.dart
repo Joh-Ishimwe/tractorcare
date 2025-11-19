@@ -18,6 +18,13 @@ class DeviationProvider with ChangeNotifier {
   DateTime? _baselineDate;
   bool _isLoading = false;
   String? _errorMessage;
+  
+  // Baseline metadata
+  String? _baselineId;
+  double? _baselineConfidence;
+  int? _baselineNumSamples;
+  double? _baselineTractorHours;
+  String? _baselineLoadCondition;
 
   DeviationProvider() {
     _initialize();
@@ -50,6 +57,14 @@ class DeviationProvider with ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   bool get hasData => _deviationPoints.isNotEmpty;
+  
+  // Baseline metadata getters
+  String? get baselineId => _baselineId;
+  double? get baselineConfidence => _baselineConfidence;
+  int? get baselineNumSamples => _baselineNumSamples;
+  double? get baselineTractorHours => _baselineTractorHours;
+  String? get baselineLoadCondition => _baselineLoadCondition;
+  bool get hasBaselineInfo => _baselineId != null;
 
   // Get sorted deviation points by date
   List<DeviationPoint> get sortedDeviationPoints {
@@ -98,6 +113,17 @@ class DeviationProvider with ChangeNotifier {
       
       AppConfig.log('📊 Fetched ${predictions.length} total predictions');
       
+      // Debug: Log details about each prediction
+      for (var i = 0; i < predictions.length && i < 5; i++) {
+        final p = predictions[i];
+        AppConfig.log('   Prediction ${i + 1}:');
+        AppConfig.log('     - ID: ${p.id}');
+        AppConfig.log('     - Created: ${p.createdAt}');
+        AppConfig.log('     - Baseline Deviation: ${p.baselineDeviation}');
+        AppConfig.log('     - Baseline Status: ${p.baselineStatus}');
+        AppConfig.log('     - Anomaly Score: ${p.anomalyScore}');
+      }
+      
       // Filter predictions that have baseline deviation
       final predictionsWithDeviation = predictions
           .where((p) => p.baselineDeviation != null)
@@ -110,6 +136,13 @@ class DeviationProvider with ChangeNotifier {
         AppConfig.log('   1. No baseline has been established for this tractor');
         AppConfig.log('   2. Predictions were made before baseline was created');
         AppConfig.log('   3. Backend did not calculate baseline deviation');
+        AppConfig.log('   4. Predictions need to be re-fetched after baseline is created');
+        
+        // Check if we have baseline info
+        if (_baselineId != null) {
+          AppConfig.log('   ℹ️ Baseline exists (ID: $_baselineId), but predictions don\'t have deviation');
+          AppConfig.log('   💡 Try recording a new audio test - it should include baseline deviation');
+        }
       }
 
       // Convert predictions to deviation points
@@ -157,7 +190,7 @@ class DeviationProvider with ChangeNotifier {
     }
   }
 
-  // Try to fetch baseline date (non-blocking, won't throw)
+  // Try to fetch baseline date and metadata (non-blocking, won't throw)
   Future<void> _tryFetchBaselineDate(String tractorId) async {
     try {
       // Fetch baseline status with timeout
@@ -172,16 +205,37 @@ class DeviationProvider with ChangeNotifier {
         return;
       }
 
-      final baselineStatusStr = baselineStatus['baseline_status']?.toString().toLowerCase();
+      final baselineStatusStr = baselineStatus['status']?.toString().toLowerCase() ?? 
+                                baselineStatus['baseline_status']?.toString().toLowerCase();
       
       if (baselineStatusStr == 'completed' || baselineStatusStr == 'active') {
+        // Extract baseline metadata
+        _baselineId = baselineStatus['baseline_id']?.toString();
+        _baselineConfidence = _parseDouble(baselineStatus['confidence']);
+        _baselineNumSamples = baselineStatus['num_samples'] is int 
+            ? baselineStatus['num_samples'] 
+            : (baselineStatus['num_samples'] != null 
+                ? int.tryParse(baselineStatus['num_samples'].toString()) 
+                : null);
+        _baselineTractorHours = _parseDouble(baselineStatus['tractor_hours']);
+        _baselineLoadCondition = baselineStatus['load_condition']?.toString();
+        
         // Try to get baseline creation date
         final baselineCreatedAt = baselineStatus['created_at'] ?? baselineStatus['finalized_at'];
         if (baselineCreatedAt != null) {
           _baselineDate = DateTime.parse(baselineCreatedAt.toString());
-          notifyListeners();
-          return;
         }
+        
+        AppConfig.log('📊 Baseline metadata loaded:');
+        AppConfig.log('   - ID: $_baselineId');
+        AppConfig.log('   - Confidence: $_baselineConfidence');
+        AppConfig.log('   - Samples: $_baselineNumSamples');
+        AppConfig.log('   - Tractor Hours: $_baselineTractorHours');
+        AppConfig.log('   - Load Condition: $_baselineLoadCondition');
+        AppConfig.log('   - Date: $_baselineDate');
+        
+        notifyListeners();
+        return;
       }
       
       // If no date in status, try baseline history
@@ -192,8 +246,17 @@ class DeviationProvider with ChangeNotifier {
       await _tryFetchBaselineFromHistory(tractorId);
     }
   }
+  
+  // Helper to parse double values
+  double? _parseDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
+  }
 
-  // Try to fetch baseline date from history (non-blocking, won't throw)
+  // Try to fetch baseline date and metadata from history (non-blocking, won't throw)
   Future<void> _tryFetchBaselineFromHistory(String tractorId) async {
     try {
       final baselineHistory = await _apiService.getBaselineHistory(tractorId).timeout(
@@ -203,27 +266,45 @@ class DeviationProvider with ChangeNotifier {
       
       if (baselineHistory.isEmpty) return;
 
+      Map<String, dynamic>? activeBaseline;
+      
       // Check if there's a baseline in history
       if (baselineHistory['history'] != null && (baselineHistory['history'] as List).isNotEmpty) {
         // Get the most recent active baseline
         final history = baselineHistory['history'] as List;
-        final activeBaseline = history.firstWhere(
+        activeBaseline = history.firstWhere(
           (b) => b['status'] == 'active' || b['status'] == 'completed',
           orElse: () => history.first,
-        );
+        ) as Map<String, dynamic>?;
+      } else if (baselineHistory['baseline'] != null) {
+        // Fallback to direct baseline object
+        activeBaseline = baselineHistory['baseline'] as Map<String, dynamic>?;
+      }
+      
+      if (activeBaseline != null) {
+        // Extract baseline metadata
+        _baselineId = activeBaseline['baseline_id']?.toString() ?? 
+                     activeBaseline['id']?.toString();
+        _baselineConfidence = _parseDouble(activeBaseline['confidence']);
+        _baselineNumSamples = activeBaseline['num_samples'] is int 
+            ? activeBaseline['num_samples'] 
+            : (activeBaseline['num_samples'] != null 
+                ? int.tryParse(activeBaseline['num_samples'].toString()) 
+                : null);
+        _baselineTractorHours = _parseDouble(activeBaseline['tractor_hours']);
+        _baselineLoadCondition = activeBaseline['load_condition']?.toString();
+        
         final createdAt = activeBaseline['created_at'] ?? activeBaseline['finalized_at'];
         if (createdAt != null) {
           _baselineDate = DateTime.parse(createdAt.toString());
-          notifyListeners();
         }
-      } else if (baselineHistory['baseline'] != null) {
-        // Fallback to direct baseline object
-        final baseline = baselineHistory['baseline'];
-        final createdAt = baseline['created_at'] ?? baseline['finalized_at'];
-        if (createdAt != null) {
-          _baselineDate = DateTime.parse(createdAt.toString());
-          notifyListeners();
-        }
+        
+        AppConfig.log('📊 Baseline metadata loaded from history:');
+        AppConfig.log('   - ID: $_baselineId');
+        AppConfig.log('   - Confidence: $_baselineConfidence');
+        AppConfig.log('   - Samples: $_baselineNumSamples');
+        
+        notifyListeners();
       }
     } catch (e) {
       AppConfig.logError('Could not fetch baseline history', e);
@@ -269,6 +350,11 @@ class DeviationProvider with ChangeNotifier {
     _deviationPoints = [];
     _baselineDate = null;
     _errorMessage = null;
+    _baselineId = null;
+    _baselineConfidence = null;
+    _baselineNumSamples = null;
+    _baselineTractorHours = null;
+    _baselineLoadCondition = null;
     notifyListeners();
   }
 }

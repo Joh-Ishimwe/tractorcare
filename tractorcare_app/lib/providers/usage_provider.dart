@@ -18,6 +18,11 @@ class UsageProvider with ChangeNotifier {
   bool _isLoading = false;
   String? _errorMessage;
 
+  // Deviation time-series data
+  List<Map<String, dynamic>> _deviationTimeSeries = [];
+  bool _deviationLoading = false;
+  String? _deviationError;
+
   // Getters
   List<dynamic> get usageHistory => _usageHistory;
   Map<String, dynamic>? get usageStats => _usageStats;
@@ -25,6 +30,9 @@ class UsageProvider with ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   bool get hasPendingLogs => _pendingUsageLogs.isNotEmpty;
+  List<Map<String, dynamic>> get deviationTimeSeries => _deviationTimeSeries;
+  bool get deviationLoading => _deviationLoading;
+  String? get deviationError => _deviationError;
 
   UsageProvider() {
     _initialize();
@@ -37,7 +45,6 @@ class UsageProvider with ChangeNotifier {
 
   Future<void> _initialize() async {
     await _loadPendingLogs();
-    
     // Listen to OfflineSyncService for connectivity changes
     _offlineSyncService.addListener(_onConnectivityChanged);
   }
@@ -46,7 +53,6 @@ class UsageProvider with ChangeNotifier {
     // Schedule for next frame to avoid setState during build
     SchedulerBinding.instance.addPostFrameCallback((_) {
       debugPrint('🔄 UsageProvider: Connectivity changed - Online: ${_offlineSyncService.isOnline}, Pending logs: ${_pendingUsageLogs.length}');
-      
       // When we come online and have pending logs, sync them
       if (_offlineSyncService.isOnline && _pendingUsageLogs.isNotEmpty) {
         debugPrint('📶 Connection restored, syncing ${_pendingUsageLogs.length} pending usage logs...');
@@ -57,6 +63,22 @@ class UsageProvider with ChangeNotifier {
         debugPrint('📶 Online but no pending logs to sync');
       }
     });
+  }
+
+  // Fetch deviation time-series for a tractor
+  Future<void> fetchDeviationTimeSeries(String tractorId) async {
+    _deviationLoading = true;
+    _deviationError = null;
+    notifyListeners();
+    try {
+      final data = await _apiService.fetchDeviationTimeSeries(tractorId);
+      _deviationTimeSeries = data;
+    } catch (e) {
+      _deviationError = e.toString();
+      _deviationTimeSeries = [];
+    }
+    _deviationLoading = false;
+    notifyListeners();
   }
 
   @override

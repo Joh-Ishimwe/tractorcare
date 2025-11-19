@@ -15,11 +15,24 @@ import librosa
 import numpy as np
 
 from app.models import User, Tractor, AudioPrediction, MaintenanceAlert, AlertType, MaintenancePriority, MaintenanceStatus
+from app.models import AudioTrend
 from app.core.security import get_current_user
 
 # ===== FIXED IMPORT - Use your actual schemas location =====
 # If you have app/schemas.py (single file):
 from app.schemas import AudioPredictionResponse, AudioPredictionListResponse
+from pydantic import BaseModel
+class DeviationPointResponse(BaseModel):
+    date: str
+    deviation: float
+    engine_hours: float = None
+    prediction_id: str = None
+    baseline_status: str = None
+
+class DeviationTimeSeriesResponse(BaseModel):
+    tractor_id: str
+    points: list[DeviationPointResponse]
+
 
 # OR if you have app/schemas/audio.py (separate files):
 # from app.schemas.audio import AudioPredictionResponse, AudioPredictionListResponse
@@ -27,7 +40,37 @@ from app.schemas import AudioPredictionResponse, AudioPredictionListResponse
 from app.services.ml_service import ml_service
 
 # ===== ROUTER DEFINITION =====
+# ===== ROUTER DEFINITION =====
 router = APIRouter()
+# --- New endpoint: Get deviation time-series for plotting ---
+@router.get("/{tractor_id}/deviation_timeseries", response_model=DeviationTimeSeriesResponse)
+async def get_deviation_timeseries(
+    tractor_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Get time-series of deviation from baseline for plotting"""
+    tractor = await Tractor.find_one({
+        "tractor_id": tractor_id.upper(),
+        "owner_id": str(current_user.id)
+    })
+    if not tractor:
+        raise HTTPException(status_code=404, detail="Tractor not found")
+
+    # Fetch all AudioTrend records for this tractor
+    trends = await AudioTrend.find({"tractor_id": tractor_id.upper()}).sort("date").to_list()
+    points = []
+    for t in trends:
+        points.append(DeviationPointResponse(
+            date=t.date.isoformat() if hasattr(t.date, 'isoformat') else str(t.date),
+            deviation=t.deviation_score,
+            engine_hours=getattr(t, 'engine_hours', None),
+            prediction_id=getattr(t, 'prediction_id', None),
+            baseline_status=getattr(t, 'baseline_status', None)
+        ))
+    return DeviationTimeSeriesResponse(
+        tractor_id=tractor_id.upper(),
+        points=points
+    )
 
 logger = logging.getLogger(__name__)
 

@@ -192,15 +192,29 @@ class _DeviationTrackingScreenState extends State<DeviationTrackingScreen> {
                               color: AppColors.textPrimary,
                             ),
                           ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'To see deviation tracking:\n\n1. First, establish a baseline for this tractor\n2. Then record audio tests\n3. The deviation from baseline will be calculated automatically',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: AppColors.textSecondary,
+                          const SizedBox(height: 16),
+                          // Show baseline info if available
+                          if (provider.hasBaselineInfo) ...[
+                            _buildBaselineInfoCard(provider),
+                            const SizedBox(height: 16),
+                            const Text(
+                              'Baseline is ready! Record audio tests to see deviation tracking.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: AppColors.textSecondary,
+                              ),
                             ),
-                          ),
+                          ] else ...[
+                            const Text(
+                              'To see deviation tracking:\n\n1. First, establish a baseline for this tractor\n2. Then record audio tests\n3. The deviation from baseline will be calculated automatically',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 24),
                           ElevatedButton.icon(
                             onPressed: () {
@@ -228,6 +242,11 @@ class _DeviationTrackingScreenState extends State<DeviationTrackingScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Baseline Info Card
+                  if (provider.hasBaselineInfo) _buildBaselineInfoCard(provider),
+                  
+                  if (provider.hasBaselineInfo) const SizedBox(height: 16),
+                  
                   // Summary Cards
                   _buildSummaryCards(provider),
                   
@@ -331,6 +350,109 @@ class _DeviationTrackingScreenState extends State<DeviationTrackingScreen> {
               fontSize: 20,
               fontWeight: FontWeight.bold,
               color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBaselineInfoCard(DeviationProvider provider) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: AppColors.primary.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.assessment, size: 20, color: AppColors.primary),
+              const SizedBox(width: 8),
+              const Text(
+                'Baseline Information',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (provider.baselineConfidence != null)
+            _buildBaselineInfoRow(
+              'Confidence Score',
+              '${(provider.baselineConfidence! * 100).toStringAsFixed(1)}%',
+              Icons.verified,
+            ),
+          if (provider.baselineNumSamples != null)
+            _buildBaselineInfoRow(
+              'Samples Used',
+              '${provider.baselineNumSamples}',
+              Icons.collections,
+            ),
+          if (provider.baselineTractorHours != null)
+            _buildBaselineInfoRow(
+              'Tractor Hours',
+              '${provider.baselineTractorHours!.toStringAsFixed(1)}h',
+              Icons.speed,
+            ),
+          if (provider.baselineLoadCondition != null)
+            _buildBaselineInfoRow(
+              'Load Condition',
+              provider.baselineLoadCondition!.toUpperCase(),
+              Icons.settings,
+            ),
+          if (provider.baselineDate != null)
+            _buildBaselineInfoRow(
+              'Created',
+              DateFormat('MMM dd, yyyy').format(provider.baselineDate!),
+              Icons.calendar_today,
+            ),
+          if (provider.baselineId != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8.0),
+              child: Text(
+                'ID: ${provider.baselineId}',
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: AppColors.textSecondary,
+                  fontFamily: 'monospace',
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBaselineInfoRow(String label, String value, IconData icon) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8.0),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: AppColors.textSecondary),
+          const SizedBox(width: 8),
+          Text(
+            '$label: ',
+            style: const TextStyle(
+              fontSize: 13,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textPrimary,
             ),
           ),
         ],

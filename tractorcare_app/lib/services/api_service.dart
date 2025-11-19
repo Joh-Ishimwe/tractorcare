@@ -25,6 +25,17 @@ class ApiService {
   static const Duration _cacheTTL = Duration(minutes: 5);
   
   // Track last successful request time to detect cold starts
+  // Fetch deviation time-series for a tractor
+  Future<List<Map<String, dynamic>>> fetchDeviationTimeSeries(String tractorId) async {
+    final url = Uri.parse('$baseUrl/audio/$tractorId/deviation_timeseries');
+    final response = await _httpClient.get(url, headers: _getHeaders());
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      return List<Map<String, dynamic>>.from(data['points']);
+    } else {
+      throw Exception('Failed to fetch deviation time-series');
+    }
+  }
   DateTime? _lastSuccessfulRequest;
   
   ApiService._internal() {
@@ -626,7 +637,7 @@ class ApiService {
 
   Future<List<AudioPrediction>> getPredictions(String tractorId) async {
     final predictionsUrl = AppConfig.getApiUrl('${AppConfig.audioEndpoint}/$tractorId/predictions');
-    AppConfig.log('🎵 Fetching predictions for tractor: $tractorId');
+    AppConfig.log('📊 Fetching predictions for tractor: $tractorId');
     
     try {
       final response = await _get(
@@ -639,7 +650,30 @@ class ApiService {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final List<dynamic> predictionsList = data['predictions'] ?? data;
-        return predictionsList.map((json) => AudioPrediction.fromJson(json)).toList();
+        
+        AppConfig.log('📦 Received ${predictionsList.length} predictions from API');
+        
+        // Debug: Log first prediction's raw structure
+        if (predictionsList.isNotEmpty) {
+          final firstPred = predictionsList.first;
+          AppConfig.log('🔍 First prediction structure:');
+          AppConfig.log('   - Has baseline_deviation: ${firstPred['baseline_deviation'] != null}');
+          AppConfig.log('   - Has baseline_comparison: ${firstPred['baseline_comparison'] != null}');
+          if (firstPred['baseline_comparison'] != null) {
+            AppConfig.log('   - baseline_comparison.deviation_score: ${firstPred['baseline_comparison']['deviation_score']}');
+            AppConfig.log('   - baseline_comparison.has_baseline: ${firstPred['baseline_comparison']['has_baseline']}');
+          }
+        }
+        
+        return predictionsList.map((json) {
+          // Normalize the JSON to ensure baseline_comparison is properly handled
+          final normalized = Map<String, dynamic>.from(json);
+          // Ensure baseline_comparison is preserved
+          if (json['baseline_comparison'] != null) {
+            normalized['baseline_comparison'] = json['baseline_comparison'];
+          }
+          return AudioPrediction.fromJson(normalized);
+        }).toList();
       }
       throw Exception('Failed to get predictions - Status: ${response.statusCode}');
     } catch (e) {
