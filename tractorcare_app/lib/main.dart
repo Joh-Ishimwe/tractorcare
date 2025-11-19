@@ -1,3 +1,4 @@
+
 // lib/main.dart
 
 import 'package:flutter/material.dart';
@@ -11,6 +12,7 @@ import 'providers/tractor_provider.dart';
 import 'providers/audio_provider.dart';
 import 'providers/usage_provider.dart';
 import 'providers/maintenance_provider.dart';
+import 'providers/deviation_provider.dart';
 import 'services/offline_sync_service.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/home/dashboard_screen.dart';
@@ -34,6 +36,7 @@ class _TractorCareAppState extends State<TractorCareApp> {
   late final TractorProvider tractorProvider;
   late final AudioProvider audioProvider;
   late final AuthProvider authProvider;
+  late final DeviationProvider deviationProvider;
 
   @override
   void initState() {
@@ -45,6 +48,7 @@ class _TractorCareAppState extends State<TractorCareApp> {
     maintenanceProvider = MaintenanceProvider();
     tractorProvider = TractorProvider();
     audioProvider = AudioProvider();
+    deviationProvider = DeviationProvider();
     
     // Initialize auth provider immediately
     authProvider.init();
@@ -63,6 +67,7 @@ class _TractorCareAppState extends State<TractorCareApp> {
         ChangeNotifierProvider.value(value: audioProvider),
         ChangeNotifierProvider.value(value: usageProvider),
         ChangeNotifierProvider.value(value: maintenanceProvider),
+        ChangeNotifierProvider.value(value: deviationProvider),
         ChangeNotifierProvider(
           create: (_) => OfflineSyncService()..initialize(),
         ),

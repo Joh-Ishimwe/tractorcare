@@ -12,6 +12,7 @@ import '../../config/app_config.dart';
 import '../../services/api_service.dart';
 import '../../services/storage_service.dart';
 import '../../services/offline_sync_service.dart';
+import '../../widgets/feedback_helper.dart';
 import 'dart:convert';
 
 
@@ -32,6 +33,8 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
   TractorSummary? _tractorSummary;
   List<dynamic>? _maintenanceAlerts;
   bool _hasBaseline = false;
+  bool _isLoadingBaseline = true; // Track baseline loading state
+  Future<void>? _usageHistoryFuture; // Store the future to avoid calling during build
 
   @override
   void didChangeDependencies() {
@@ -52,6 +55,13 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
       // Defer loading until after first frame to avoid notifying listeners during build
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
+          // Initialize usage history future after build completes (outside setState to avoid nested state changes)
+          final usageProvider = Provider.of<UsageProvider>(context, listen: false);
+          _usageHistoryFuture = usageProvider.fetchUsageHistory(_tractorId!);
+          // Trigger rebuild to update FutureBuilder with the new future
+          if (mounted) {
+            setState(() {});
+          }
           _loadData();
         }
       });
@@ -70,19 +80,41 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
     final loadedTractor = tractorProvider.selectedTractor;
     if (loadedTractor != null) {
       final actualTractorId = loadedTractor.tractorId;
-      AppConfig.log('🔧 Using actual tractor ID for API calls: $actualTractorId (was: $_tractorId)');
+      final previousTractorId = _tractorId;
+      AppConfig.log('🔧 Using actual tractor ID for API calls: $actualTractorId (was: $previousTractorId)');
       
       // Update _tractorId to use the actual tractor ID for subsequent calls
       _tractorId = actualTractorId;
       
+      // Update usage history future with actual tractor ID if it changed
+      if (previousTractorId != actualTractorId) {
+        final usageProvider = Provider.of<UsageProvider>(context, listen: false);
+        // Call outside setState to avoid nested state changes
+        _usageHistoryFuture = usageProvider.fetchUsageHistory(actualTractorId);
+        // Trigger rebuild to update FutureBuilder with the new future
+        if (mounted) {
+          setState(() {});
+        }
+      }
+      
       // Load audio predictions and evaluate health in parallel (non-blocking)
-      Future.wait([
-        audioProvider.fetchPredictions(actualTractorId, limit: 5),
-        tractorProvider.evaluateTractorHealth(actualTractorId),
-      ]).then((_) {
-        AppConfig.log('🎵 Audio predictions and health evaluation completed');
-      }).catchError((error) {
-        AppConfig.logError('❌ Failed to load predictions or evaluate health', error);
+      // Only evaluate health if predictions are loaded (to ensure we have latest data)
+      // Use WidgetsBinding to defer to avoid setState during build
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        audioProvider.fetchPredictions(actualTractorId, limit: 5).then((_) {
+          // Evaluate health after predictions are loaded (with throttling)
+          tractorProvider.evaluateTractorHealth(actualTractorId).then((_) {
+            AppConfig.log('🎵 Audio predictions and health evaluation completed');
+          }).catchError((error) {
+            AppConfig.logError('❌ Failed to evaluate health', error);
+          });
+        }).catchError((error) {
+          AppConfig.logError('❌ Failed to load predictions', error);
+          // Still try to evaluate health even if predictions fail
+          tractorProvider.evaluateTractorHealth(actualTractorId).catchError((e) {
+            AppConfig.logError('❌ Failed to evaluate health', e);
+          });
+        });
       });
     }
     
@@ -194,16 +226,28 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
         final statusData = jsonDecode(cachedStatus);
         setState(() {
           _hasBaseline = statusData['has_baseline'] == true;
+          _isLoadingBaseline = false; // Done loading (from cache)
         });
         AppConfig.log('✅ Loaded cached baseline status: $_hasBaseline');
+      } else {
+        setState(() {
+          _isLoadingBaseline = false; // Done loading (no cache)
+        });
       }
     } catch (e) {
       AppConfig.logError('❌ Error loading cached baseline status', e);
+      setState(() {
+        _isLoadingBaseline = false; // Done loading (error)
+      });
     }
   }
 
   Future<void> _checkBaselineStatus() async {
     if (_tractorId == null) return;
+    
+    setState(() {
+      _isLoadingBaseline = true; // Start loading
+    });
     
     try {
       AppConfig.log('📊 Checking baseline status for tractor: $_tractorId');
@@ -216,6 +260,7 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
         if (historyList.isNotEmpty) {
           setState(() {
             _hasBaseline = true;
+            _isLoadingBaseline = false; // Done loading
           });
           
           // Cache the baseline status
@@ -243,6 +288,7 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
         
         setState(() {
           _hasBaseline = hasBaseline;
+          _isLoadingBaseline = false; // Done loading
         });
         
         // Cache the baseline status
@@ -304,9 +350,7 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
             icon: const Icon(Icons.edit),
             onPressed: () {
               // TODO: Navigate to edit screen
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Edit feature coming soon')),
-              );
+              FeedbackHelper.showInfo(context, 'Edit feature coming soon');
             },
           ),
           IconButton(
@@ -343,6 +387,11 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                         _buildQuickActions(tractor),
 
                         const SizedBox(height: 16),
+
+                        // Deviation Tracking (if baseline exists)
+                        if (_hasBaseline) _buildDeviationTrackingCard(tractor),
+
+                        if (_hasBaseline) const SizedBox(height: 16),
 
                         // Health Report
                         _buildHealthReportCard(tractor),
@@ -488,11 +537,19 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child: Icon(
-                        _hasBaseline ? Icons.check_circle : Icons.close,
-                        color: _hasBaseline ? AppColors.success : AppColors.error,
-                        size: 20,
-                      ),
+                      child: _isLoadingBaseline
+                          ? Padding(
+                              padding: const EdgeInsets.all(6.0),
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                              ),
+                            )
+                          : Icon(
+                              _hasBaseline ? Icons.check_circle : Icons.close,
+                              color: _hasBaseline ? AppColors.success : AppColors.error,
+                              size: 20,
+                            ),
                     ),
                   ],
                 ),
@@ -584,6 +641,73 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
     );
   }
 
+  // Deviation Tracking Card
+  Widget _buildDeviationTrackingCard(Tractor tractor) {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: InkWell(
+        onTap: () {
+          Navigator.pushNamed(
+            context,
+            '/deviation-tracking',
+            arguments: {
+              'tractor_id': tractor.tractorId,
+              'tractor_model': tractor.model,
+            },
+          );
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.show_chart,
+                  color: AppColors.primary,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Deviation Tracking',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'View sound deviation from baseline over time',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(
+                Icons.chevron_right,
+                color: AppColors.textSecondary,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   // Maintenance Summary (grid of stats)
 
   Widget _buildMaintenanceAlertsCard() {
@@ -632,7 +756,11 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
                     ),
                     TextButton(
                       onPressed: () {
-                        Navigator.pushNamed(context, '/calendar');
+                        Navigator.pushNamed(
+                          context,
+                          '/maintenance',
+                          arguments: _tractorId, // Pass tractor ID to filter maintenance
+                        );
                       },
                       child: const Text('View All'),
                     ),
@@ -653,9 +781,18 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
     List<dynamic> maintenanceItems = [];
     
     if (_maintenanceAlerts != null && _maintenanceAlerts!.isNotEmpty) {
-      // Filter out completed alerts and sort by due date (most urgent first)
+      // Filter out completed alerts and items with empty/null task names, then sort by due date (most urgent first)
       final sortedAlerts = List<dynamic>.from(_maintenanceAlerts!)
-          .where((alert) => alert['status'] != 'completed')
+          .where((alert) {
+            // Filter out completed items
+            if (alert['status'] == 'completed') return false;
+            // Filter out items with empty or null task names
+            final taskName = alert['task_name']?.toString().trim() ?? '';
+            final description = alert['description']?.toString().trim() ?? '';
+            final message = alert['message']?.toString().trim() ?? '';
+            // Only include items that have at least one valid name field
+            return taskName.isNotEmpty || description.isNotEmpty || message.isNotEmpty;
+          })
           .toList()
         ..sort((a, b) {
           final aDate = DateTime.tryParse(a['due_date']?.toString() ?? '') ?? DateTime.now().add(const Duration(days: 365));
@@ -665,8 +802,13 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
       
       maintenanceItems = sortedAlerts;
     } else if (_tractorSummary?.alerts != null && _tractorSummary!.alerts.isNotEmpty) {
-      // Fallback to summary alerts
-      final sortedAlerts = List.from(_tractorSummary!.alerts)
+      // Fallback to summary alerts - filter out empty messages
+      final validAlerts = _tractorSummary!.alerts.where((alert) {
+        final message = alert.message?.trim() ?? '';
+        return message.isNotEmpty;
+      }).toList();
+      
+      final sortedAlerts = List.from(validAlerts)
         ..sort((a, b) {
           final aDate = a.dueDate ?? DateTime.now().add(const Duration(days: 365));
           final bDate = b.dueDate ?? DateTime.now().add(const Duration(days: 365));
@@ -674,26 +816,32 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
         });
       
       maintenanceItems = sortedAlerts.map((alert) => {
-        'task_name': alert.task,
+        'task_name': alert.message, // Use message instead of task
         'due_date': alert.dueDate?.toIso8601String(),
-        'description': alert.description,
+        'description': alert.message, // Use message as description since MaintenanceAlert doesn't have description
         'trigger_type': 'manual', // Default for existing data
       }).toList();
     }
     
     // No default maintenance items for new tractors - keep empty if no real alerts exist
 
-    // Categorize maintenance items
-    final abnormalSoundItems = maintenanceItems.where((item) => 
-      (item['trigger_type']?.toString() ?? 'manual') == 'abnormal_sound'
-    ).toList();
+    // Categorize maintenance items - filter out any items with empty task names
+    final abnormalSoundItems = maintenanceItems.where((item) {
+      final taskName = item['task_name']?.toString().trim() ?? '';
+      final description = item['description']?.toString().trim() ?? '';
+      final hasValidName = taskName.isNotEmpty || description.isNotEmpty;
+      return hasValidName && (item['trigger_type']?.toString() ?? 'manual') == 'abnormal_sound';
+    }).toList();
     
-    final routineItems = maintenanceItems.where((item) => 
-      (item['trigger_type']?.toString() ?? 'manual') != 'abnormal_sound'
-    ).toList();
+    final routineItems = maintenanceItems.where((item) {
+      final taskName = item['task_name']?.toString().trim() ?? '';
+      final description = item['description']?.toString().trim() ?? '';
+      final hasValidName = taskName.isNotEmpty || description.isNotEmpty;
+      return hasValidName && (item['trigger_type']?.toString() ?? 'manual') != 'abnormal_sound';
+    }).toList();
 
-    // If no maintenance items, show empty state
-    if (maintenanceItems.isEmpty) {
+    // If no maintenance items after filtering, show empty state
+    if (abnormalSoundItems.isEmpty && routineItems.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(16.0),
@@ -789,8 +937,12 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
   }
 
   Widget _buildMaintenanceItem(dynamic maintenance, {bool isAbnormalSound = false}) {
-    // Get maintenance info
-    final taskName = maintenance['task_name'] ?? maintenance['description'] ?? 'Maintenance Task';
+    // Get maintenance info - ensure we have a valid task name
+    // This should never be empty since we filter items before displaying them
+    final taskName = maintenance['task_name']?.toString().trim() ?? 
+                     maintenance['description']?.toString().trim() ?? 
+                     maintenance['message']?.toString().trim() ?? 
+                     'Maintenance Task';
     final dueInfo = _formatMaintenanceDue(maintenance);
     
     // Determine status color based on category and urgency
@@ -1032,17 +1184,10 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
     if (!mounted) return;
 
     if (success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Tractor deleted successfully')),
-      );
+      FeedbackHelper.showSuccess(context, 'Tractor deleted successfully');
       Navigator.pop(context);
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(tractorProvider.error ?? 'Failed to delete tractor'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+      FeedbackHelper.showError(context, FeedbackHelper.formatErrorMessage(tractorProvider.error ?? 'Failed to delete tractor'));
     }
   }
 
@@ -1086,8 +1231,9 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
             // Simple usage history list (last 2 records) with offline support
             Consumer<UsageProvider>(
               builder: (context, usageProvider, child) {
+                // Use stored future (initialized in didChangeDependencies to avoid setState during build)
                 return FutureBuilder<void>(
-                  future: usageProvider.fetchUsageHistory(_tractorId!),
+                  future: _usageHistoryFuture ?? Future.value(),
                   builder: (context, snapshot) {
                     if (snapshot.connectionState == ConnectionState.waiting && usageProvider.usageHistory.isEmpty) {
                       return const Center(child: CircularProgressIndicator());
@@ -1237,30 +1383,49 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
         'performed_by': 'Mobile App User',
       };
 
-      await _apiService.createMaintenance(maintenanceData);
+      final offlineSyncService = Provider.of<OfflineSyncService>(context, listen: false);
       
-      // Close loading dialog
-      if (mounted) Navigator.of(context).pop();
+      if (offlineSyncService.isOnline) {
+        try {
+          await _apiService.createMaintenance(maintenanceData);
+          
+          // Close loading dialog
+          if (mounted) Navigator.of(context).pop();
 
-      // Show success message
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.white),
-                const SizedBox(width: 8),
-                Text('${maintenance['task_name']} marked as complete!'),
-              ],
-            ),
-            backgroundColor: AppColors.success,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+          // Show success message
+          if (mounted) {
+            FeedbackHelper.showSuccess(context, '${maintenance['task_name']} marked as complete!');
+          }
+
+          // Refresh the data to reflect the completion
+          await _loadMaintenanceData();
+        } catch (e) {
+          // Close loading dialog if open
+          if (mounted) Navigator.of(context).pop();
+          
+          // If online but request failed, it will be queued by createMaintenance
+          if (mounted) {
+            FeedbackHelper.showWarning(context, 'Queued for sync: ${maintenance['task_name']} will be marked complete when connection improves.');
+          }
+          
+          // Refresh to show pending status
+          await _loadMaintenanceData();
+        }
+      } else {
+        // Offline: createMaintenance will queue it automatically
+        await _apiService.createMaintenance(maintenanceData);
+        
+        // Close loading dialog
+        if (mounted) Navigator.of(context).pop();
+        
+        // Show offline message
+        if (mounted) {
+          FeedbackHelper.showInfo(context, 'Offline: ${maintenance['task_name']} queued and will be marked complete when online.');
+        }
+        
+        // Refresh the data
+        await _loadMaintenanceData();
       }
-
-      // Refresh the data to reflect the completion
-      await _loadMaintenanceData();
       
     } catch (e) {
       // Close loading dialog if open
@@ -1268,19 +1433,7 @@ class _TractorDetailScreenState extends State<TractorDetailScreen> {
       
       // Show error message
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                Icon(Icons.error, color: Colors.white),
-                const SizedBox(width: 8),
-                Text('Failed to complete maintenance: ${e.toString()}'),
-              ],
-            ),
-            backgroundColor: AppColors.error,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        FeedbackHelper.showError(context, FeedbackHelper.formatErrorMessage('Failed to complete maintenance: $e'));
       }
       AppConfig.logError('Failed to complete maintenance', e);
     }

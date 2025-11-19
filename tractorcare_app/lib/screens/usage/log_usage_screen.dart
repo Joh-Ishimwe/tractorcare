@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import '../../config/colors.dart';
 import '../../services/api_service.dart';
+import '../../widgets/feedback_helper.dart';
 
 class LogUsageScreen extends StatefulWidget {
   final String tractorId;
@@ -49,12 +50,7 @@ class _LogUsageScreenState extends State<LogUsageScreen> {
       
       if (endHours < widget.currentHours) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('End hours cannot be less than current hours'),
-              backgroundColor: AppColors.error,
-            ),
-          );
+          FeedbackHelper.showError(context, 'End hours cannot be less than current hours (${widget.currentHours})');
         }
         setState(() => _isLoading = false);
         return;
@@ -68,22 +64,12 @@ class _LogUsageScreenState extends State<LogUsageScreen> {
       );
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Usage logged successfully!'),
-            backgroundColor: AppColors.success,
-          ),
-        );
+        FeedbackHelper.showSuccess(context, 'Usage logged successfully!');
         Navigator.pop(context, true); // Return true to indicate success
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('❌ Error: ${e.toString()}'),
-            backgroundColor: AppColors.error,
-          ),
-        );
+        FeedbackHelper.showError(context, FeedbackHelper.formatErrorMessage(e));
       }
     } finally {
       if (mounted) {

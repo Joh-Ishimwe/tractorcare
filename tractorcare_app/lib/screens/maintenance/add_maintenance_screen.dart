@@ -1,9 +1,13 @@
 // lib/screens/maintenance/add_maintenance_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../models/maintenance.dart';
 import '../../services/api_service.dart';
+import '../../services/offline_sync_service.dart';
 import '../../config/colors.dart';
+import '../../config/app_config.dart';
+import '../../widgets/feedback_helper.dart';
 
 class AddMaintenanceScreen extends StatefulWidget {
   const AddMaintenanceScreen({super.key});
@@ -76,28 +80,38 @@ class _AddMaintenanceScreenState extends State<AddMaintenanceScreen> {
 
     try {
       data['tractor_id'] = _tractorId!;
-      await _api.createMaintenance(data);
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Maintenance added successfully!'),
-          backgroundColor: AppColors.success,
-        ),
-      );
-
-      Navigator.pop(context, true);
+      final offlineSyncService = Provider.of<OfflineSyncService>(context, listen: false);
+      
+      if (offlineSyncService.isOnline) {
+        try {
+          await _api.createMaintenance(data);
+          
+          if (!mounted) return;
+          
+          FeedbackHelper.showSuccess(context, 'Maintenance added successfully!');
+          Navigator.pop(context, true);
+        } catch (e) {
+          AppConfig.logError('Failed to create maintenance (will queue for sync)', e);
+          // If online but request failed, it will be queued by createMaintenance
+          if (!mounted) return;
+          
+          FeedbackHelper.showWarning(context, 'Maintenance queued for sync when connection improves.');
+          Navigator.pop(context, true);
+        }
+      } else {
+        // Offline: createMaintenance will queue it automatically
+        await _api.createMaintenance(data);
+        
+        if (!mounted) return;
+        
+        FeedbackHelper.showInfo(context, 'Offline mode: Maintenance queued and will be added when online.');
+        Navigator.pop(context, true);
+      }
     } catch (e) {
       if (!mounted) return;
 
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error: $e'),
-          backgroundColor: AppColors.error,
-        ),
-      );
+      FeedbackHelper.showError(context, FeedbackHelper.formatErrorMessage('Failed to add maintenance: $e'));
     }
   }
 

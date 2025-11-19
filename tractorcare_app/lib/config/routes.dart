@@ -24,6 +24,7 @@ import '../screens/home/statistics_screen.dart';
 import '../screens/usage/log_usage_screen.dart';
 import '../screens/usage/usage_history_screen.dart';
 import '../screens/sync/pending_sync_screen.dart';
+import '../screens/audio/deviation_tracking_screen.dart';
 
 class AppRoutes {
   static const String splash = '/';
@@ -49,6 +50,7 @@ class AppRoutes {
   static const String logUsage = '/log-usage';
   static const String usageHistory = '/usage-history';
   static const String pendingSync = '/pending-sync';
+  static const String deviationTracking = '/deviation-tracking';
 
   static Map<String, WidgetBuilder> get routes => {
         // Remove splash route since we use home: AuthWrapper() instead
@@ -64,7 +66,10 @@ class AppRoutes {
         baselineSetup: (context) => const BaselineSetupScreen(),
         baselineCollection: (context) => const BaselineCollectionScreen(),
         baselineStatus: (context) => const BaselineStatusScreen(),
-        maintenance: (context) => const MaintenanceListScreen(),
+        maintenance: (context) {
+          final args = ModalRoute.of(context)?.settings.arguments;
+          return MaintenanceListScreen(tractorId: args is String ? args : null);
+        },
         maintenanceDetail: (context) => const MaintenanceDetailScreen(),
         maintenanceAlerts: (context) {
           final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
@@ -87,5 +92,12 @@ class AppRoutes {
           return UsageHistoryScreen(tractorId: args['tractor_id']);
         },
         pendingSync: (context) => const PendingSyncScreen(),
+        deviationTracking: (context) {
+          final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
+          return DeviationTrackingScreen(
+            tractorId: args['tractor_id'],
+            tractorModel: args['tractor_model'],
+          );
+        },
       };
 }

@@ -3,6 +3,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../widgets/feedback_helper.dart';
+import '../../config/app_config.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -41,24 +43,21 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
 
       if (success) {
-        Navigator.pushReplacementNamed(context, '/dashboard');
-      } else {
-        // Show the actual error from the provider
-        String errorMessage = authProvider.error ?? 'Login failed. Please check your credentials.';
-        
-        // Add helpful context for server issues
-        if (errorMessage.contains('500') || errorMessage.contains('Internal Server Error')) {
-          errorMessage = 'Server is temporarily unavailable. Using offline mode for development.';
-        } else if (errorMessage.contains('Network error') || errorMessage.contains('Connection timeout')) {
-          errorMessage = 'Cannot connect to server. Using offline mode for development.';
+        FeedbackHelper.showSuccess(context, 'Login successful! Welcome back.');
+        // Small delay to show success message
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/dashboard');
         }
-        
-        _showErrorDialog(errorMessage);
+      } else {
+        // Show formatted error message
+        final errorMessage = authProvider.error ?? 'Login failed. Please check your credentials.';
+        FeedbackHelper.showError(context, FeedbackHelper.formatErrorMessage(errorMessage));
       }
     } catch (e) {
       if (!mounted) return;
-      print('Login error in UI: $e');
-      _showErrorDialog(e.toString().replaceAll('Exception: ', ''));
+      AppConfig.logError('Login error in UI', e);
+      FeedbackHelper.showError(context, FeedbackHelper.formatErrorMessage(e));
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -66,21 +65,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  void _showErrorDialog(String message) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Login Error'),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {

@@ -163,7 +163,7 @@ class _AudioTestScreenState extends State<AudioTestScreen> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    _buildTipRow('Record for 10-15 seconds'),
+                    _buildTipRow('Record for 30 seconds'),
                     // _buildTipRow('Keep the tractor at idle speed'),
                     _buildTipRow('Hold phone near the engine'),
                     _buildTipRow('Minimize background noise'),

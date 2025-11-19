@@ -1,6 +1,8 @@
 ﻿import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/usage_provider.dart';
+import '../../providers/tractor_provider.dart';
+import '../../models/tractor.dart';
 import '../../services/offline_sync_service.dart';
 import '../../config/colors.dart';
 
@@ -19,7 +21,7 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
   final OfflineSyncService _offlineSyncService = OfflineSyncService();
   
   late String tractorId;
-  late int currentHours;
+  late double currentHours; // Changed to double to handle decimal hours
   late String model;
 
   @override
@@ -29,15 +31,22 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
     final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
     if (args != null) {
       tractorId = args['tractor_id'] ?? widget.tractorId;
-      currentHours = args['engine_hours'] ?? 0;
+      // Safely convert engine_hours to double (could be int or double)
+      final hoursValue = args['engine_hours'];
+      currentHours = hoursValue is double ? hoursValue : (hoursValue is int ? hoursValue.toDouble() : 0.0);
       model = args['model'] ?? 'Unknown Model';
     } else {
       tractorId = widget.tractorId;
-      currentHours = 0;
+      currentHours = 0.0;
       model = 'Unknown Model';
     }
     
-    _loadUsageData();
+    // Defer loading to avoid setState during build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _loadUsageData();
+      }
+    });
   }
 
   @override
@@ -157,7 +166,7 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
 
     if (success) {
       // Update current hours locally
-      currentHours = newTotalHours.toInt();
+      currentHours = newTotalHours; // Keep as double
 
       // Clear form
       _endHoursController.clear();
@@ -575,20 +584,26 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
                     ),
                     const SizedBox(width: 8),
                   ],
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: AppColors.success.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      isPending ? '${endHours.toStringAsFixed(1)}h total' : '${hoursUsed.toStringAsFixed(1)}h',
-                      style: TextStyle(
-                        color: AppColors.success,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 12,
-                      ),
-                    ),
+                  Consumer<TractorProvider>(
+                    builder: (context, tractorProvider, child) {
+                      final tractor = tractorProvider.getTractorById(tractorId);
+                      final statusColor = _getStatusColor(tractor?.status ?? TractorStatus.unknown);
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: statusColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          isPending ? '${endHours.toStringAsFixed(1)}h total' : '${hoursUsed.toStringAsFixed(1)}h',
+                          style: TextStyle(
+                            color: statusColor,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),
@@ -751,5 +766,18 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
         ],
       ),
     );
+  }
+
+  Color _getStatusColor(TractorStatus status) {
+    switch (status) {
+      case TractorStatus.good:
+        return AppColors.success;
+      case TractorStatus.warning:
+        return AppColors.warning;
+      case TractorStatus.critical:
+        return AppColors.error;
+      default:
+        return AppColors.textTertiary;
+    }
   }
 }

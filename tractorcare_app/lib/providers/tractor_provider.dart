@@ -22,6 +22,11 @@ class TractorProvider with ChangeNotifier {
   
   // Store recent predictions for each tractor
   final Map<String, List<AudioPrediction>> _recentPredictions = {};
+  
+  // Throttling for health evaluation to prevent excessive API calls
+  DateTime? _lastAllTractorsHealthEvaluation;
+  final Map<String, DateTime> _lastTractorHealthEvaluation = {};
+  static const Duration _healthEvaluationThrottle = Duration(seconds: 30); // Minimum 30 seconds between evaluations
 
   List<Tractor> get tractors => _tractors;
   Tractor? get selectedTractor => _selectedTractor;
@@ -192,7 +197,8 @@ class TractorProvider with ChangeNotifier {
     _recentPredictions[tractorId] = updatedPredictions;
     
     // Automatically evaluate health status when new prediction is added
-    evaluateTractorHealth(tractorId);
+    // Force evaluation since we have new data that may affect health status
+    evaluateTractorHealth(tractorId, force: true);
     
     // Notify listeners to update the dashboard critical status immediately
     notifyListeners();
@@ -284,6 +290,15 @@ class TractorProvider with ChangeNotifier {
       _setError(e.toString());
       _setLoading(false);
       return false;
+    }
+  }
+
+  // Get tractor by ID
+  Tractor? getTractorById(String tractorId) {
+    try {
+      return _tractors.firstWhere((t) => t.tractorId == tractorId);
+    } catch (e) {
+      return null;
     }
   }
 
@@ -499,8 +514,25 @@ class TractorProvider with ChangeNotifier {
   }
 
   // Evaluate and update health status for a tractor
-  Future<TractorStatus> evaluateTractorHealth(String tractorId) async {
+  Future<TractorStatus> evaluateTractorHealth(String tractorId, {bool force = false}) async {
     try {
+      // Throttle: Skip if evaluated recently (unless forced)
+      if (!force) {
+        final lastEvaluation = _lastTractorHealthEvaluation[tractorId];
+        if (lastEvaluation != null) {
+          final timeSinceLastEvaluation = DateTime.now().difference(lastEvaluation);
+          if (timeSinceLastEvaluation < _healthEvaluationThrottle) {
+            print('⏭️ Skipping health evaluation for $tractorId (evaluated ${timeSinceLastEvaluation.inSeconds}s ago, throttle: ${_healthEvaluationThrottle.inSeconds}s)');
+            // Return current status instead of re-evaluating
+            final tractor = _tractors.firstWhere(
+              (t) => t.tractorId == tractorId,
+              orElse: () => throw Exception('Tractor not found'),
+            );
+            return tractor.status;
+          }
+        }
+      }
+      
       // Get the tractor
       final tractor = _tractors.firstWhere((t) => t.tractorId == tractorId);
       
@@ -522,6 +554,9 @@ class TractorProvider with ChangeNotifier {
         maintenanceAlerts: maintenanceAlerts,
         recentPredictions: recentPredictions,
       );
+
+      // Update last evaluation time
+      _lastTractorHealthEvaluation[tractorId] = DateTime.now();
 
       // Update tractor status if it changed
       if (tractor.status != newStatus) {
@@ -554,10 +589,21 @@ class TractorProvider with ChangeNotifier {
   }
 
   // Evaluate health for all tractors (optimized for background processing)
-  Future<void> evaluateAllTractorsHealth() async {
+  Future<void> evaluateAllTractorsHealth({bool force = false}) async {
     if (_tractors.isEmpty) {
       print('⚠️  No tractors to evaluate health for');
       return;
+    }
+
+    // Throttle: Skip if evaluated recently (unless forced)
+    if (!force) {
+      if (_lastAllTractorsHealthEvaluation != null) {
+        final timeSinceLastEvaluation = DateTime.now().difference(_lastAllTractorsHealthEvaluation!);
+        if (timeSinceLastEvaluation < _healthEvaluationThrottle) {
+          print('⏭️ Skipping health evaluation for all tractors (evaluated ${timeSinceLastEvaluation.inSeconds}s ago, throttle: ${_healthEvaluationThrottle.inSeconds}s)');
+          return;
+        }
+      }
     }
 
     _isEvaluatingHealth = true;
@@ -565,14 +611,17 @@ class TractorProvider with ChangeNotifier {
 
     print('🔍 Starting health evaluation for ${_tractors.length} tractors');
     
+    // Update last evaluation time
+    _lastAllTractorsHealthEvaluation = DateTime.now();
+    
     // Process tractors in smaller batches to avoid blocking UI
     const batchSize = 3;
     for (int i = 0; i < _tractors.length; i += batchSize) {
       final endIndex = (i + batchSize < _tractors.length) ? i + batchSize : _tractors.length;
       final batch = _tractors.sublist(i, endIndex);
       
-      // Process batch in parallel
-      final futures = batch.map((tractor) => evaluateTractorHealth(tractor.tractorId));
+      // Process batch in parallel (use force=false to respect individual tractor throttling)
+      final futures = batch.map((tractor) => evaluateTractorHealth(tractor.tractorId, force: force));
       await Future.wait(futures);
       
       // Small delay to prevent overwhelming the system

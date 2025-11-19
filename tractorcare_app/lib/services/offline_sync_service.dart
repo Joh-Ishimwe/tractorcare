@@ -42,9 +42,9 @@ class OfflineSyncService extends ChangeNotifier {
     
     AppConfig.log('✅ OfflineSyncService initialized - Online: $_isOnline');
     
-    // Check connectivity every 15 seconds (more frequent)
+    // Check connectivity every 30 seconds (less frequent to reduce false positives)
     _connectivityTimer = Timer.periodic(
-      const Duration(seconds: 15),
+      const Duration(seconds: 30),
       (timer) => _checkConnectivity(),
     );
   }
@@ -57,31 +57,52 @@ class OfflineSyncService extends ChangeNotifier {
 
   // Check current connectivity status by trying to reach the API
   Future<void> _checkConnectivity() async {
+    bool wasOnline = _isOnline;
+    
     try {
-      // Try to make a simple HTTP request to our API server
+      // Use the /health endpoint which is designed for connectivity checks
       final response = await http.get(
-        Uri.parse('${AppConfig.apiBaseUrl}/'),
+        Uri.parse('${AppConfig.apiBaseUrl}/health'),
         headers: {'Content-Type': 'application/json'},
-      ).timeout(const Duration(seconds: 5));
+      ).timeout(const Duration(seconds: 8));
       
+      // Health endpoint should return 200 if server is healthy
       if (response.statusCode == 200) {
         _isOnline = true;
-        AppConfig.log('✅ Online: API server reachable');
         
-        // If we just came online, attempt to sync
-        if (_isOnline && _pendingChangesCount > 0) {
-          syncPendingChanges();
+        // Only log and notify if status changed
+        if (!wasOnline) {
+          AppConfig.log('✅ Online: API server reachable');
+          notifyListeners();
+          
+          // If we just came online, attempt to sync
+          if (_pendingChangesCount > 0) {
+            syncPendingChanges();
+          }
         }
       } else {
+        // Non-200 response from health endpoint - treat as offline
         _isOnline = false;
-        AppConfig.log('❌ Offline: API server returned ${response.statusCode}');
+        if (wasOnline) {
+          AppConfig.log('❌ Offline: Health check returned ${response.statusCode}');
+          notifyListeners();
+        }
       }
     } catch (e) {
+      // Network errors (timeout, connection refused, etc.) mean we're offline
       _isOnline = false;
-      AppConfig.log('❌ Offline: Cannot reach API server - $e');
+      
+      // Only log and notify if status changed
+      if (wasOnline) {
+        // Don't log timeout errors as they're common and not critical
+        if (e.toString().contains('TimeoutException')) {
+          AppConfig.log('⏱️ Connectivity check timeout (server may be slow)');
+        } else {
+          AppConfig.log('❌ Offline: Cannot reach API server - $e');
+        }
+        notifyListeners();
+      }
     }
-    
-    notifyListeners();
   }
 
   // Update pending changes count
@@ -230,6 +251,7 @@ class OfflineSyncService extends ChangeNotifier {
   // Sync all pending changes to server
   Future<bool> syncPendingChanges() async {
     if (!_isOnline || _isSyncing) {
+      AppConfig.log('⏸️ Sync skipped: Online=$_isOnline, Syncing=$_isSyncing');
       return false;
     }
 
@@ -238,18 +260,26 @@ class OfflineSyncService extends ChangeNotifier {
 
     try {
       final pendingItems = await _storage.getPendingSyncItems();
+      AppConfig.log('🔄 Starting sync of ${pendingItems.length} pending items...');
+      
+      int syncedCount = 0;
+      int failedCount = 0;
       
       for (final item in pendingItems) {
         try {
+          AppConfig.log('📤 Syncing item: ${item['type']} (id: ${item['pending_sync_id'] ?? item['id']})');
           await _syncSingleItem(item);
           // Remove item using either pending_sync_id or id
           final itemId = item['pending_sync_id'] ?? item['id'];
           if (itemId != null) {
             await _storage.removePendingSyncItem(itemId);
+            syncedCount++;
+            AppConfig.log('✅ Successfully synced and removed item: $itemId');
           }
         } catch (e) {
           final itemId = item['pending_sync_id'] ?? item['id'] ?? 'unknown';
-          AppConfig.logError('Failed to sync item $itemId', e);
+          AppConfig.logError('❌ Failed to sync item $itemId', e);
+          failedCount++;
           // Continue with other items, don't stop the whole sync
         }
       }
@@ -257,7 +287,8 @@ class OfflineSyncService extends ChangeNotifier {
       await _storage.updateLastSyncTimestamp();
       await _updatePendingChangesCount();
       
-      return true;
+      AppConfig.log('✅ Sync completed: $syncedCount succeeded, $failedCount failed');
+      return syncedCount > 0;
     } catch (e) {
       AppConfig.logError('Sync failed', e);
       return false;
@@ -274,8 +305,49 @@ class OfflineSyncService extends ChangeNotifier {
     
     switch (type) {
       case 'maintenance_record':
-        // For now, just log that we would sync this
-        AppConfig.log('Would sync maintenance record: ${item['task_name']}');
+        try {
+          AppConfig.log('🔧 Syncing maintenance record for tractor: ${item['tractor_id']}');
+          await apiService.createMaintenance({
+            'tractor_id': item['tractor_id'],
+            'task_name': item['task_name'],
+            'description': item['description'] ?? '',
+            'completion_date': item['completion_date'],
+            'completion_hours': item['completion_hours'] ?? 1,
+            'actual_time_minutes': item['actual_time_minutes'] ?? 30,
+            'actual_cost_rwf': item['actual_cost_rwf'] ?? 0,
+            'service_location': item['service_location'] ?? '',
+            'service_provider': item['service_provider'] ?? '',
+            'notes': item['notes'] ?? '',
+            'performed_by': item['performed_by'] ?? '',
+            'parts_used': item['parts_used'] ?? [],
+          });
+          AppConfig.log('✅ Maintenance record synced successfully');
+        } catch (e) {
+          AppConfig.logError('❌ Failed to sync maintenance record', e);
+          rethrow;
+        }
+        break;
+        
+      case 'maintenance_task':
+        try {
+          AppConfig.log('🔧 Syncing maintenance task for tractor: ${item['tractor_id']}');
+          await apiService.createMaintenanceTask(item['task_data'] ?? {});
+          AppConfig.log('✅ Maintenance task synced successfully');
+        } catch (e) {
+          AppConfig.logError('❌ Failed to sync maintenance task', e);
+          rethrow;
+        }
+        break;
+        
+      case 'maintenance_update':
+        try {
+          AppConfig.log('🔧 Syncing maintenance update: ${item['maintenance_id']}');
+          await apiService.updateMaintenanceRecord(item['maintenance_id'], item['updates'] ?? {});
+          AppConfig.log('✅ Maintenance update synced successfully');
+        } catch (e) {
+          AppConfig.logError('❌ Failed to sync maintenance update', e);
+          rethrow;
+        }
         break;
         
       case 'usage_log':
@@ -294,17 +366,21 @@ class OfflineSyncService extends ChangeNotifier {
         
       case 'audio_upload':
         try {
-          AppConfig.log('Syncing audio upload for tractor: ${item['tractor_id']}');
-          final audioBytes = base64Decode(item['audio_data']);
-          await apiService.uploadAudioBytes(
+          AppConfig.log('🎵 Syncing audio upload for tractor: ${item['tractor_id']}');
+          final audioData = item['audio_data'];
+          if (audioData == null || audioData.toString().isEmpty) {
+            throw Exception('Audio data is missing or empty');
+          }
+          final audioBytes = base64Decode(audioData.toString());
+          final prediction = await apiService.uploadAudioBytes(
             bytes: audioBytes,
-            filename: item['filename'],
+            filename: item['filename'] ?? 'recording.wav',
             tractorId: item['tractor_id'],
-            engineHours: item['engine_hours'].toDouble(),
+            engineHours: (item['engine_hours'] ?? 0).toDouble(),
           );
-          AppConfig.log('✅ Audio upload synced successfully');
+          AppConfig.log('✅ Audio upload synced successfully - Prediction ID: ${prediction.id}');
         } catch (e) {
-          AppConfig.logError('Failed to sync audio upload', e);
+          AppConfig.logError('❌ Failed to sync audio upload', e);
           rethrow;
         }
         break;

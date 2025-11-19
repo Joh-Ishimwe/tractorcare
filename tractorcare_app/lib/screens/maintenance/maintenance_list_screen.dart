@@ -6,11 +6,14 @@ import '../../providers/tractor_provider.dart';
 import '../../models/tractor.dart';
 import '../../models/maintenance.dart';
 import '../../services/api_service.dart';
+import '../../services/offline_sync_service.dart';
 import '../../config/colors.dart';
 import '../../config/app_config.dart';
 
 class MaintenanceListScreen extends StatefulWidget {
-  const MaintenanceListScreen({super.key});
+  final String? tractorId; // Optional tractor ID to filter by
+  
+  const MaintenanceListScreen({super.key, this.tractorId});
 
   @override
   State<MaintenanceListScreen> createState() => _MaintenanceListScreenState();
@@ -46,11 +49,21 @@ class _MaintenanceListScreenState extends State<MaintenanceListScreen>
     final tractorProvider = Provider.of<TractorProvider>(context, listen: false);
     await tractorProvider.fetchTractors();
     
-    if (tractorProvider.tractors.isNotEmpty && _selectedTractorId == null && mounted) {
+    // If a tractor ID was passed as argument, use it; otherwise use first tractor
+    if (mounted) {
       setState(() {
-        _selectedTractorId = tractorProvider.tractors.first.tractorId;
+        if (widget.tractorId != null) {
+          // Use the tractor ID passed as argument
+          _selectedTractorId = widget.tractorId;
+        } else if (tractorProvider.tractors.isNotEmpty && _selectedTractorId == null) {
+          // Fall back to first tractor if no ID provided
+          _selectedTractorId = tractorProvider.tractors.first.tractorId;
+        }
       });
-      await _loadMaintenance();
+      
+      if (_selectedTractorId != null) {
+        await _loadMaintenance();
+      }
     }
   }
 
@@ -257,6 +270,41 @@ class _MaintenanceListScreenState extends State<MaintenanceListScreen>
                 );
               }
 
+              // If a specific tractor ID was passed, show it as read-only; otherwise show dropdown
+              if (widget.tractorId != null) {
+                // Show selected tractor as read-only when filtered by specific tractor
+                final selectedTractor = provider.tractors.firstWhere(
+                  (t) => t.tractorId == widget.tractorId,
+                  orElse: () => provider.tractors.first,
+                );
+                return Container(
+                  margin: const EdgeInsets.all(16.0),
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Row(
+                    children: [
+                      Text(selectedTractor.statusIcon),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          '${selectedTractor.tractorId} - ${selectedTractor.model}',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      Icon(Icons.lock, size: 16, color: AppColors.textTertiary),
+                    ],
+                  ),
+                );
+              }
+              
               return Container(
                 margin: const EdgeInsets.all(16.0),
                 padding: const EdgeInsets.symmetric(horizontal: 16.0),
@@ -610,30 +658,85 @@ class _MaintenanceListScreenState extends State<MaintenanceListScreen>
         'performed_by': 'Mobile App User',
       };
 
-      await _api.createMaintenance(maintenanceData);
+      final offlineSyncService = Provider.of<OfflineSyncService>(context, listen: false);
       
-      // Close loading dialog
-      if (mounted) Navigator.of(context).pop();
+      if (offlineSyncService.isOnline) {
+        try {
+          await _api.createMaintenance(maintenanceData);
+          
+          // Close loading dialog
+          if (mounted) Navigator.of(context).pop();
 
-      // Show success message
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.white),
-                const SizedBox(width: 8),
-                Text('${maintenance.typeString} marked as complete!'),
-              ],
+          // Show success message
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    Icon(Icons.check_circle, color: Colors.white),
+                    const SizedBox(width: 8),
+                    Text('${maintenance.typeString} marked as complete!'),
+                  ],
+                ),
+                backgroundColor: AppColors.success,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+
+          // Refresh the data to reflect the completion
+          await _loadMaintenance();
+        } catch (e) {
+          // Close loading dialog if open
+          if (mounted) Navigator.of(context).pop();
+          
+          // If online but request failed, it will be queued by createMaintenance
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    Icon(Icons.warning, color: Colors.white),
+                    const SizedBox(width: 8),
+                    Text('Queued for sync: ${maintenance.typeString} will be marked complete when connection improves.'),
+                  ],
+                ),
+                backgroundColor: AppColors.warning,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+          
+          // Refresh to show pending status
+          await _loadMaintenance();
+        }
+      } else {
+        // Offline: createMaintenance will queue it automatically
+        await _api.createMaintenance(maintenanceData);
+        
+        // Close loading dialog
+        if (mounted) Navigator.of(context).pop();
+        
+        // Show offline message
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.cloud_upload, color: Colors.white),
+                  const SizedBox(width: 8),
+                  Text('Offline: ${maintenance.typeString} queued and will be marked complete when online.'),
+                ],
+              ),
+              backgroundColor: AppColors.info,
+              behavior: SnackBarBehavior.floating,
             ),
-            backgroundColor: AppColors.success,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+          );
+        }
+        
+        // Refresh the data
+        await _loadMaintenance();
       }
-
-      // Refresh the data to reflect the completion
-      await _loadMaintenance();
       
     } catch (e) {
       // Close loading dialog if open

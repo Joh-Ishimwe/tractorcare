@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../providers/tractor_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../config/colors.dart';
+import '../../widgets/feedback_helper.dart';
 
 class AddTractorScreen extends StatefulWidget {
   const AddTractorScreen({super.key});
@@ -16,17 +17,19 @@ class AddTractorScreen extends StatefulWidget {
 class _AddTractorScreenState extends State<AddTractorScreen> {
   final _formKey = GlobalKey<FormState>();
   final _tractorIdController = TextEditingController();
-  final _modelController = TextEditingController();
   final _engineHoursController = TextEditingController();
   final _purchaseYearController = TextEditingController();
   final _notesController = TextEditingController();
 
+  String? _selectedModel; // Selected tractor model
   bool _isLoading = false;
+  
+  // Available tractor models
+  static const List<String> _availableModels = ['MF_240', 'MF_375'];
 
   @override
   void dispose() {
     _tractorIdController.dispose();
-    _modelController.dispose();
     _engineHoursController.dispose();
     _purchaseYearController.dispose();
     _notesController.dispose();
@@ -54,14 +57,14 @@ class _AddTractorScreenState extends State<AddTractorScreen> {
 
     final tractorProvider = Provider.of<TractorProvider>(context, listen: false);
 
-    String normalizeModel(String raw) {
-      final cleaned = raw.trim().toUpperCase().replaceAll('-', '_').replaceAll(' ', '_');
-      if (cleaned.contains('240')) return 'MF_240';
-      if (cleaned.contains('375')) return 'MF_375';
-      return cleaned; // fallback (server will validate)
+    // Validate model is selected
+    if (_selectedModel == null) {
+      setState(() => _isLoading = false);
+      FeedbackHelper.showError(context, 'Please select a tractor model');
+      return;
     }
 
-    final model = normalizeModel(_modelController.text);
+    final model = _selectedModel!;
 
     // Backend expects purchase_date (datetime). If user provided only year, use Jan 1 of that year; otherwise use today.
     DateTime purchaseDate;
@@ -72,8 +75,18 @@ class _AddTractorScreenState extends State<AddTractorScreen> {
       purchaseDate = DateTime.now();
     }
 
+    // Clean tractor ID - remove any non-alphanumeric characters except dashes/underscores
+    final tractorId = _tractorIdController.text.trim().replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '');
+    
+    // Validate tractor ID length
+    if (tractorId.length < 3 || tractorId.length > 20) {
+      setState(() => _isLoading = false);
+      FeedbackHelper.showError(context, 'Tractor ID must be between 3 and 20 characters');
+      return;
+    }
+    
     final data = {
-      'tractor_id': _tractorIdController.text.trim(),
+      'tractor_id': tractorId,
       'model': model,
       'engine_hours': double.parse(_engineHoursController.text),
       'purchase_date': purchaseDate.toIso8601String(),
@@ -86,56 +99,29 @@ class _AddTractorScreenState extends State<AddTractorScreen> {
     setState(() => _isLoading = false);
 
     if (success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Tractor added successfully!'),
-          backgroundColor: AppColors.success,
-        ),
-      );
+      FeedbackHelper.showSuccess(context, 'Tractor added successfully!');
       Navigator.pop(context);
     } else {
       final errorMessage = tractorProvider.error ?? 'Failed to add tractor';
       
       // Check if it's an authentication error
       if (errorMessage.contains('login again') || errorMessage.contains('Authentication')) {
-        _showAuthenticationErrorDialog();
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(errorMessage),
-            backgroundColor: AppColors.error,
-          ),
+        final shouldLogout = await FeedbackHelper.showConfirmation(
+          context,
+          title: 'Session Expired',
+          message: 'Your session has expired. Please login again to continue.',
+          confirmText: 'Login',
+          cancelText: 'Cancel',
         );
+        if (shouldLogout && mounted) {
+          Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+        }
+      } else {
+        FeedbackHelper.showError(context, FeedbackHelper.formatErrorMessage(errorMessage));
       }
     }
   }
 
-  void _showAuthenticationErrorDialog() {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Authentication Required'),
-          content: const Text(
-            'Your session has expired. Please login again to continue adding tractors.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context); // Close dialog
-                Navigator.pushReplacementNamed(context, '/login');
-              },
-              child: const Text('Login'),
-            ),
-          ],
-        );
-      },
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -207,19 +193,31 @@ class _AddTractorScreenState extends State<AddTractorScreen> {
 
               const SizedBox(height: 16),
 
-              // Model Field
-              TextFormField(
-                controller: _modelController,
-                textCapitalization: TextCapitalization.words,
+              // Model Dropdown Field
+              DropdownButtonFormField<String>(
+                value: _selectedModel,
                 decoration: InputDecoration(
                   labelText: 'Model *',
-                  hintText: 'e.g., John Deere 5075E',
+                  hintText: 'Select tractor model',
                   prefixIcon: const Icon(Icons.precision_manufacturing),
-                  helperText: 'Make and model of your tractor',
+                  helperText: 'Choose between MF 240 or MF 375',
                 ),
+                items: _availableModels.map((String model) {
+                  // Display format: "MF 240" instead of "MF_240"
+                  final displayName = model.replaceAll('_', ' ');
+                  return DropdownMenuItem<String>(
+                    value: model,
+                    child: Text(displayName),
+                  );
+                }).toList(),
+                onChanged: (String? value) {
+                  setState(() {
+                    _selectedModel = value;
+                  });
+                },
                 validator: (value) {
                   if (value == null || value.isEmpty) {
-                    return 'Please enter the tractor model';
+                    return 'Please select a tractor model';
                   }
                   return null;
                 },

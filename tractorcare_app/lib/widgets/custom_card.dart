@@ -239,6 +239,7 @@ class GradientStatusCard extends StatelessWidget {
   final String tractorId;
   final bool hasStatus;
   final bool hasBaseline;
+  final bool isLoadingBaseline; // Add loading state for baseline
   final IconData tractorIcon;
   final VoidCallback? onTap;
   final List<Color>? gradientColors;
@@ -249,6 +250,7 @@ class GradientStatusCard extends StatelessWidget {
     required this.tractorId,
     required this.hasStatus,
     required this.hasBaseline,
+    this.isLoadingBaseline = false, // Default to false for backward compatibility
     this.tractorIcon = Icons.agriculture,
     this.onTap,
     this.gradientColors,
@@ -258,6 +260,7 @@ class GradientStatusCard extends StatelessWidget {
   Widget _statusColumn({
     required String label,
     required bool active,
+    bool isLoading = false, // Add loading parameter
   }) {
     return Column(
       children: [
@@ -277,11 +280,19 @@ class GradientStatusCard extends StatelessWidget {
             color: Colors.white,
             borderRadius: BorderRadius.circular(6),
           ),
-          child: Icon(
-            active ? Icons.check : Icons.close,
-            size: 18,
-            color: active ? AppColors.success : Colors.grey[600],
-          ),
+          child: isLoading
+              ? Padding(
+                  padding: const EdgeInsets.all(5.0),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                  ),
+                )
+              : Icon(
+                  active ? Icons.check : Icons.close,
+                  size: 18,
+                  color: active ? AppColors.success : Colors.grey[600],
+                ),
         ),
       ],
     );
@@ -362,7 +373,7 @@ class GradientStatusCard extends StatelessWidget {
               children: [
                 _statusColumn(label: 'Status', active: hasStatus),
                 const SizedBox(width: 16),
-                _statusColumn(label: 'Baseline', active: hasBaseline),
+                _statusColumn(label: 'Baseline', active: hasBaseline, isLoading: isLoadingBaseline),
               ],
             ),
           ],
@@ -620,7 +631,7 @@ class SimpleTractorCard extends StatelessWidget {
                 color: statusColor.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: isEvaluatingHealth && statusText == 'Unknown'
+              child: isEvaluatingHealth
                   ? Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [

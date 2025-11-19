@@ -28,8 +28,10 @@ class AppConfig {
   static const int defaultPageSize = 20;
   static const int maxPageSize = 100;
   
-  static const int apiTimeout = 60;
-  static const int uploadTimeout = 120;
+  // Optimized timeouts - shorter for better UX, longer for uploads
+  static const int apiTimeout = 15; // Reduced from 60s - faster failure detection
+  static const int uploadTimeout = 45; // Reduced from 120s - still enough for audio uploads
+  static const int quickTimeout = 8; // For simple GET requests
   
   static const int minPasswordLength = 8;
   static const int maxPasswordLength = 128;

@@ -3,6 +3,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../widgets/feedback_helper.dart';
+import '../../config/app_config.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -39,12 +41,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     if (!_agreedToTerms) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please agree to Terms and Conditions'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      FeedbackHelper.showWarning(context, 'Please agree to Terms and Conditions to continue.');
       return;
     }
 
@@ -72,22 +69,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (!mounted) return;
 
       if (success) {
-        // Show success message
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Account created successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        
-        // Navigate to dashboard
-        Navigator.pushReplacementNamed(context, '/dashboard');
+        FeedbackHelper.showSuccess(context, 'Account created successfully! Welcome to TractorCare.');
+        // Small delay to show success message
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/dashboard');
+        }
       } else {
-        _showErrorDialog('Registration failed. Please try again.');
+        final errorMessage = authProvider.error ?? 'Registration failed. Please try again.';
+        FeedbackHelper.showError(context, FeedbackHelper.formatErrorMessage(errorMessage));
       }
     } catch (e) {
       if (!mounted) return;
-      _showErrorDialog(e.toString());
+      AppConfig.logError('Registration error in UI', e);
+      FeedbackHelper.showError(context, FeedbackHelper.formatErrorMessage(e));
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -95,21 +90,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
-  void _showErrorDialog(String message) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Registration Error'),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {

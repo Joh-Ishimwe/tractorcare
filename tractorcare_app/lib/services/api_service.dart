@@ -1,4 +1,5 @@
 ﻿import 'dart:convert';
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../config/app_config.dart';
@@ -12,10 +13,124 @@ class ApiService {
   // Singleton pattern to ensure same instance across app
   static final ApiService _instance = ApiService._internal();
   factory ApiService() => _instance;
-  ApiService._internal();
 
   final String baseUrl = AppConfig.apiBaseUrl;
   String? _token;
+  
+  // Reusable HTTP client with connection pooling and keep-alive
+  late final http.Client _httpClient;
+  
+  // Simple request cache for GET requests (5 minute TTL)
+  final Map<String, _CacheEntry> _cache = {};
+  static const Duration _cacheTTL = Duration(minutes: 5);
+  
+  // Track last successful request time to detect cold starts
+  DateTime? _lastSuccessfulRequest;
+  
+  ApiService._internal() {
+    _httpClient = http.Client();
+  }
+  
+  // Clean up cache periodically
+  void _cleanCache() {
+    final now = DateTime.now();
+    _cache.removeWhere((key, entry) => now.difference(entry.timestamp) > _cacheTTL);
+  }
+  
+  // Check if we should retry (for Render cold starts)
+  bool _shouldRetry(int attempt, Exception? error) {
+    if (attempt >= 3) return false;
+    if (error == null) return false;
+    
+    final errorStr = error.toString().toLowerCase();
+    return errorStr.contains('timeout') || 
+           errorStr.contains('connection') ||
+           errorStr.contains('failed to fetch') ||
+           (_lastSuccessfulRequest == null && attempt < 2); // First request might be cold start
+  }
+  
+  // Retry with exponential backoff
+  Future<T> _retryRequest<T>(Future<T> Function() request, {int maxRetries = 3}) async {
+    int attempt = 0;
+    Exception? lastError;
+    
+    while (attempt < maxRetries) {
+      try {
+        final result = await request();
+        _lastSuccessfulRequest = DateTime.now();
+        return result;
+      } catch (e) {
+        lastError = e is Exception ? e : Exception(e.toString());
+        attempt++;
+        
+        if (!_shouldRetry(attempt, lastError)) {
+          rethrow;
+        }
+        
+        // Exponential backoff: 1s, 2s, 4s
+        final delay = Duration(seconds: 1 << (attempt - 1));
+        AppConfig.log('🔄 Retry attempt $attempt/$maxRetries after ${delay.inSeconds}s...');
+        await Future.delayed(delay);
+      }
+    }
+    
+    throw lastError ?? Exception('Request failed after $maxRetries attempts');
+  }
+  
+  // Optimized GET request with caching
+  Future<http.Response> _get(String url, {Map<String, String>? headers, bool useCache = true, int? timeout}) async {
+    _cleanCache();
+    
+    // Check cache first
+    if (useCache && _cache.containsKey(url)) {
+      final entry = _cache[url]!;
+      if (DateTime.now().difference(entry.timestamp) < _cacheTTL) {
+        AppConfig.log('💾 Cache hit for: $url');
+        return entry.response;
+      }
+      _cache.remove(url);
+    }
+    
+    final response = await _retryRequest(() async {
+      return await _httpClient.get(
+        Uri.parse(url),
+        headers: headers,
+      ).timeout(Duration(seconds: timeout ?? AppConfig.quickTimeout));
+    });
+    
+    // Cache successful GET responses
+    if (useCache && response.statusCode == 200) {
+      _cache[url] = _CacheEntry(response, DateTime.now());
+    }
+    
+    return response;
+  }
+  
+  // Optimized POST request
+  Future<http.Response> _post(String url, {Map<String, String>? headers, Object? body, int? timeout}) async {
+    return await _retryRequest(() async {
+      return await _httpClient.post(
+        Uri.parse(url),
+        headers: headers,
+        body: body,
+      ).timeout(Duration(seconds: timeout ?? AppConfig.apiTimeout));
+    });
+  }
+  
+  // Clear cache for a specific URL or all
+  void clearCache([String? url]) {
+    if (url != null) {
+      _cache.remove(url);
+    } else {
+      _cache.clear();
+    }
+  }
+  
+  // Dispose HTTP client
+  void dispose() {
+    _httpClient.close();
+    _cache.clear();
+  }
 
   void setToken(String token) {
     _token = token;
@@ -46,7 +161,11 @@ class ApiService {
   }
 
   Map<String, String> _getHeaders({bool includeAuth = true}) {
-    return AppConfig.getHeaders(token: includeAuth ? _token : null);
+    final headers = AppConfig.getHeaders(token: includeAuth ? _token : null);
+    // Add keep-alive for connection reuse
+    headers['Connection'] = 'keep-alive';
+    headers['Keep-Alive'] = 'timeout=30, max=1000';
+    return headers;
   }
 
   Map<String, String> _getMultipartHeaders() {
@@ -62,16 +181,11 @@ class ApiService {
       // Test connectivity first
       AppConfig.log('🌐 Testing network connectivity...');
       
-      final response = await http.post(
-        Uri.parse(loginUrl),
+      final response = await _post(
+        loginUrl,
         headers: _getHeaders(includeAuth: false),
         body: json.encode({'email': email, 'password': password}),
-      ).timeout(
-        Duration(seconds: AppConfig.apiTimeout),
-        onTimeout: () {
-          AppConfig.logError('⏰ Request timed out after ${AppConfig.apiTimeout} seconds');
-          throw Exception('Connection timeout - Server took too long to respond. Please try again.');
-        },
+        timeout: AppConfig.apiTimeout,
       );
       
       AppConfig.log('📡 Response status: ${response.statusCode}');
@@ -106,10 +220,12 @@ class ApiService {
 
   Future<Map<String, dynamic>> getCurrentUser() async {
     try {
-      final response = await http.get(
-        Uri.parse(AppConfig.getApiUrl('${AppConfig.authEndpoint}/me')),
+      final response = await _get(
+        AppConfig.getApiUrl('${AppConfig.authEndpoint}/me'),
         headers: _getHeaders(),
-      ).timeout(Duration(seconds: AppConfig.apiTimeout));
+        useCache: false, // Don't cache user data
+        timeout: AppConfig.quickTimeout,
+      );
       
       if (response.statusCode == 200) {
         return json.decode(response.body);
@@ -136,10 +252,12 @@ class ApiService {
       final headers = _getHeaders();
       AppConfig.log('📋 Request headers: $headers');
       
-      final response = await http.get(
-        Uri.parse(tractorsUrl),
+      final response = await _get(
+        tractorsUrl,
         headers: headers,
-      ).timeout(Duration(seconds: AppConfig.apiTimeout));
+        useCache: true,
+        timeout: AppConfig.quickTimeout,
+      );
       
       AppConfig.log('📡 Tractors response status: ${response.statusCode}');
       AppConfig.log('📄 Tractors response body: ${response.body}');
@@ -215,11 +333,15 @@ class ApiService {
       final headers = _getHeaders();
       AppConfig.log('📋 Request headers: $headers');
       
-      final response = await http.post(
-        Uri.parse(AppConfig.getApiUrl('${AppConfig.tractorsEndpoint}/')),
+      final response = await _post(
+        AppConfig.getApiUrl('${AppConfig.tractorsEndpoint}/'),
         headers: headers,
         body: json.encode(formattedData),
-      ).timeout(Duration(seconds: AppConfig.apiTimeout));
+        timeout: AppConfig.apiTimeout,
+      );
+      
+      // Clear cache after creating new tractor
+      clearCache();
       
       AppConfig.log('📡 Create response status: ${response.statusCode}');
       AppConfig.log('📄 Create response: ${response.body}');
@@ -231,6 +353,19 @@ class ApiService {
         throw Exception('Authentication failed - Please login again');
       } else if (response.statusCode == 403) {
         throw Exception('Not authorized to create tractors');
+      } else if (response.statusCode == 400) {
+        // Parse validation error from backend
+        try {
+          final errorBody = json.decode(response.body);
+          final detail = errorBody['detail'] ?? response.body;
+          AppConfig.logError('❌ Validation error', detail);
+          throw Exception(detail is String ? detail : 'Invalid request. Please check your input and try again.');
+        } catch (e) {
+          if (e is Exception && e.toString().contains('detail')) {
+            rethrow;
+          }
+          throw Exception('Invalid request. Please check your input and try again.');
+        }
       }
       throw Exception('Failed to create tractor - Status: ${response.statusCode}: ${response.body}');
     } catch (e) {
@@ -279,8 +414,15 @@ class ApiService {
         throw Exception('Either audioFile or audioBytes must be provided');
       }
 
-      // Send request
-      final streamedResponse = await request.send();
+      // Send request with timeout (multipart requests can only be sent once - don't retry)
+      http.StreamedResponse streamedResponse;
+      try {
+        streamedResponse = await request.send().timeout(Duration(seconds: AppConfig.uploadTimeout));
+      } catch (e) {
+        // If request fails, don't retry - let it be caught and queued for offline sync
+        AppConfig.logError('Request send failed (will queue for offline sync)', e);
+        rethrow;
+      }
       final response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
@@ -314,12 +456,12 @@ class ApiService {
     
     try {
       final url = AppConfig.getApiUrl('/maintenance/$tractorId/records');
-      final response = await http.get(
-        Uri.parse(url).replace(queryParameters: {
-          'limit': '50',
-        }),
+      final response = await _get(
+        url,
         headers: _getHeaders(),
-      ).timeout(Duration(seconds: AppConfig.apiTimeout));
+        useCache: true,
+        timeout: AppConfig.quickTimeout,
+      );
       
       AppConfig.log('📡 Maintenance response status: ${response.statusCode}');
       AppConfig.log('📄 Maintenance response body: ${response.body}');
@@ -363,9 +505,11 @@ class ApiService {
         } else {
           // For upcoming tasks, fetch from alerts endpoint
           try {
-            final alertsResponse = await http.get(
-              Uri.parse('$baseUrl/maintenance/$tractorId/alerts'),
-              headers: await _getHeaders(),
+            final alertsResponse = await _get(
+              '$baseUrl/maintenance/$tractorId/alerts',
+              headers: _getHeaders(),
+              useCache: true,
+              timeout: AppConfig.quickTimeout,
             );
             
             if (alertsResponse.statusCode == 200) {
@@ -417,10 +561,12 @@ class ApiService {
     AppConfig.log('🚜 Fetching tractor: $tractorId');
     
     try {
-      final response = await http.get(
-        Uri.parse(tractorUrl),
+      final response = await _get(
+        tractorUrl,
         headers: _getHeaders(),
-      ).timeout(Duration(seconds: AppConfig.apiTimeout));
+        useCache: true,
+        timeout: AppConfig.quickTimeout,
+      );
       
       if (response.statusCode == 200) {
         return Tractor.fromJson(json.decode(response.body));
@@ -437,11 +583,16 @@ class ApiService {
     AppConfig.log('🚜 Updating tractor: $tractorId');
     
     try {
-      final response = await http.put(
-        Uri.parse(updateUrl),
-        headers: _getHeaders(),
-        body: json.encode(updates),
-      ).timeout(Duration(seconds: AppConfig.apiTimeout));
+      final response = await _retryRequest(() async {
+        return await _httpClient.put(
+          Uri.parse(updateUrl),
+          headers: _getHeaders(),
+          body: json.encode(updates),
+        ).timeout(Duration(seconds: AppConfig.apiTimeout));
+      });
+      
+      // Clear cache after update
+      clearCache();
       
       if (response.statusCode == 200) {
         AppConfig.logSuccess('✅ Tractor updated successfully');
@@ -456,10 +607,15 @@ class ApiService {
 
   Future<void> deleteTractor(String tractorId) async {
     try {
-      final response = await http.delete(
-        Uri.parse('$baseUrl/tractors/$tractorId'),
-        headers: _getHeaders(),
-      );
+      final response = await _retryRequest(() async {
+        return await _httpClient.delete(
+          Uri.parse('$baseUrl/tractors/$tractorId'),
+          headers: _getHeaders(),
+        ).timeout(Duration(seconds: AppConfig.apiTimeout));
+      });
+      
+      // Clear cache after deletion
+      clearCache();
       if (response.statusCode != 200 && response.statusCode != 204) {
         throw Exception('Failed to delete tractor');
       }
@@ -473,10 +629,12 @@ class ApiService {
     AppConfig.log('🎵 Fetching predictions for tractor: $tractorId');
     
     try {
-      final response = await http.get(
-        Uri.parse(predictionsUrl),
+      final response = await _get(
+        predictionsUrl,
         headers: _getHeaders(),
-      ).timeout(Duration(seconds: AppConfig.apiTimeout));
+        useCache: false, // Don't cache predictions - they change frequently
+        timeout: AppConfig.quickTimeout,
+      );
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -534,8 +692,15 @@ class ApiService {
         filename: filename,
       ));
 
-      // Send request with timeout
-      final streamedResponse = await request.send().timeout(const Duration(seconds: 30));
+      // Send request with timeout (multipart requests can only be sent once - don't retry)
+      http.StreamedResponse streamedResponse;
+      try {
+        streamedResponse = await request.send().timeout(Duration(seconds: AppConfig.uploadTimeout));
+      } catch (e) {
+        // If request fails, don't retry - let it be caught and queued for offline sync
+        AppConfig.logError('Request send failed (will queue for offline sync)', e);
+        rethrow;
+      }
       final response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
@@ -609,10 +774,12 @@ class ApiService {
     AppConfig.log('🎵 Fetching prediction: $predictionId');
     
     try {
-      final response = await http.get(
-        Uri.parse(predictionUrl),
+      final response = await _get(
+        predictionUrl,
         headers: _getHeaders(),
-      ).timeout(Duration(seconds: AppConfig.apiTimeout));
+        useCache: false,
+        timeout: AppConfig.quickTimeout,
+      );
       
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -638,10 +805,15 @@ class ApiService {
     AppConfig.log('🗑️ Deleting prediction $predictionId for tractor $tractorId');
     try {
       final url = AppConfig.getApiUrl('${AppConfig.audioEndpoint}/$tractorId/predictions/$predictionId');
-      final response = await http.delete(
-        Uri.parse(url),
-        headers: _getHeaders(),
-      ).timeout(Duration(seconds: AppConfig.apiTimeout));
+      final response = await _retryRequest(() async {
+        return await _httpClient.delete(
+          Uri.parse(url),
+          headers: _getHeaders(),
+        ).timeout(Duration(seconds: AppConfig.apiTimeout));
+      });
+      
+      // Clear cache after deletion
+      clearCache();
 
       if (response.statusCode == 200 || response.statusCode == 204) {
         AppConfig.logSuccess('✅ Prediction deleted');
@@ -659,39 +831,94 @@ class ApiService {
   }
 
   Future<Maintenance> updateMaintenance(String maintenanceId, Map<String, dynamic> updates) async {
-    AppConfig.log('🔧 Updating maintenance: $maintenanceId (mock data)');
+    await ensureTokenLoaded();
     
-    // TODO: Replace with actual API call when backend endpoint is implemented
-    // For now, return mock updated maintenance data
-    await Future.delayed(const Duration(milliseconds: 300)); // Simulate network delay
+    AppConfig.log('🔧 Updating maintenance: $maintenanceId');
     
-    final now = DateTime.now();
-    return Maintenance(
-      id: maintenanceId,
-      tractorId: updates['tractor_id'] ?? 'unknown',
-      userId: updates['user_id'] ?? 'user_001',
-      type: updates['type'] != null 
-        ? MaintenanceType.values.firstWhere(
-            (type) => type.toString().split('.').last == updates['type'],
-            orElse: () => MaintenanceType.service,
-          )
-        : MaintenanceType.service,
-      customType: updates['custom_type'] ?? 'Updated Service',
-      triggerType: MaintenanceTriggerType.manual, // Default for updates
-      dueDate: updates['due_date'] != null 
-        ? DateTime.parse(updates['due_date'])
-        : now.add(const Duration(days: 30)),
-      notes: updates['notes'],
-      status: updates['status'] != null
-        ? MaintenanceStatus.values.firstWhere(
-            (status) => status.toString().split('.').last == updates['status'],
-            orElse: () => MaintenanceStatus.upcoming,
-          )
-        : MaintenanceStatus.upcoming,
-      completedAt: updates['completed_at'] != null ? DateTime.parse(updates['completed_at']) : null,
-      actualCost: updates['actual_cost']?.toDouble(),
-      createdAt: now.subtract(const Duration(days: 1)),
-    );
+    try {
+      // Try to use the updateMaintenanceRecord endpoint if available
+      final response = await updateMaintenanceRecord(maintenanceId, updates);
+      
+      // Convert response to Maintenance object
+      final now = DateTime.now();
+      return Maintenance(
+        id: maintenanceId,
+        tractorId: response['tractor_id'] ?? updates['tractor_id'] ?? 'unknown',
+        userId: response['user_id'] ?? updates['user_id'] ?? 'user_001',
+        type: MaintenanceType.service,
+        customType: response['task_name'] ?? updates['custom_type'] ?? 'Updated Service',
+        triggerType: MaintenanceTriggerType.manual,
+        dueDate: response['due_date'] != null 
+          ? DateTime.parse(response['due_date'])
+          : (updates['due_date'] != null ? DateTime.parse(updates['due_date']) : now.add(const Duration(days: 30))),
+        notes: response['notes'] ?? updates['notes'],
+        status: response['status'] != null
+          ? MaintenanceStatus.values.firstWhere(
+              (status) => status.toString().split('.').last == response['status'],
+              orElse: () => MaintenanceStatus.upcoming,
+            )
+          : (updates['status'] != null
+            ? MaintenanceStatus.values.firstWhere(
+                (status) => status.toString().split('.').last == updates['status'],
+                orElse: () => MaintenanceStatus.upcoming,
+              )
+            : MaintenanceStatus.upcoming),
+        completedAt: response['completed_at'] != null ? DateTime.parse(response['completed_at']) : (updates['completed_at'] != null ? DateTime.parse(updates['completed_at']) : null),
+        actualCost: (response['actual_cost_rwf'] ?? updates['actual_cost'] ?? 0).toDouble(),
+        createdAt: response['created_at'] != null ? DateTime.parse(response['created_at']) : now.subtract(const Duration(days: 1)),
+      );
+    } catch (e) {
+      AppConfig.logError('❌ Update maintenance error', e);
+      
+      // Check if this is a network error - queue for offline sync
+      if (e.toString().contains('Failed to fetch') || 
+          e.toString().contains('ClientException') ||
+          e.toString().contains('TimeoutException') ||
+          e.toString().contains('Connection failed') ||
+          e.toString().contains('SocketException')) {
+        
+        AppConfig.log('📱 Queueing maintenance update for offline sync');
+        final storage = StorageService();
+        final pendingItems = await storage.getPendingSyncItems();
+        
+        final updateId = 'maintenance_update_${DateTime.now().millisecondsSinceEpoch}';
+        pendingItems.add({
+          'type': 'maintenance_update',
+          'maintenance_id': maintenanceId,
+          'updates': updates,
+          'timestamp': DateTime.now().toIso8601String(),
+          'id': updateId,
+          'pending_sync_id': updateId,
+        });
+        
+        await storage.savePendingSyncItems(pendingItems);
+        AppConfig.log('✅ Maintenance update queued for offline sync');
+        
+        // Return a mock updated maintenance object for offline mode
+        final now = DateTime.now();
+        return Maintenance(
+          id: maintenanceId,
+          tractorId: updates['tractor_id'] ?? 'unknown',
+          userId: updates['user_id'] ?? 'user_001',
+          type: MaintenanceType.service,
+          customType: updates['custom_type'] ?? 'Updated Service',
+          triggerType: MaintenanceTriggerType.manual,
+          dueDate: updates['due_date'] != null ? DateTime.parse(updates['due_date']) : now.add(const Duration(days: 30)),
+          notes: updates['notes'],
+          status: updates['status'] != null
+            ? MaintenanceStatus.values.firstWhere(
+                (status) => status.toString().split('.').last == updates['status'],
+                orElse: () => MaintenanceStatus.upcoming,
+              )
+            : MaintenanceStatus.upcoming,
+          completedAt: updates['completed_at'] != null ? DateTime.parse(updates['completed_at']) : null,
+          estimatedCost: updates['estimated_cost']?.toDouble() ?? 0.0,
+          createdAt: updates['created_at'] != null ? DateTime.parse(updates['created_at']) : now,
+        );
+      }
+      
+      rethrow;
+    }
   }
 
   Future<void> deleteMaintenance(String maintenanceId) async {
@@ -729,11 +956,15 @@ class ApiService {
       
       AppConfig.log('📊 Request data: $requestData');
       
-      final response = await http.post(
-        Uri.parse(url),
+      final response = await _post(
+        url,
         headers: _getHeaders(),
         body: json.encode(requestData),
-      ).timeout(Duration(seconds: AppConfig.apiTimeout));
+        timeout: AppConfig.apiTimeout,
+      );
+      
+      // Clear cache after maintenance changes
+      clearCache();
       
       AppConfig.log('📡 Create maintenance response status: ${response.statusCode}');
       AppConfig.log('📄 Create maintenance response body: ${response.body}');
@@ -761,6 +992,58 @@ class ApiService {
       throw Exception('Failed to record maintenance - Status: ${response.statusCode}: ${response.body}');
     } catch (e) {
       AppConfig.logError('❌ Create maintenance error', e);
+      
+      // Check if this is a network error - queue for offline sync
+      if (e.toString().contains('Failed to fetch') || 
+          e.toString().contains('ClientException') ||
+          e.toString().contains('TimeoutException') ||
+          e.toString().contains('Connection failed') ||
+          e.toString().contains('SocketException')) {
+        
+        AppConfig.log('📱 Queueing maintenance record for offline sync');
+        final storage = StorageService();
+        final pendingItems = await storage.getPendingSyncItems();
+        
+        final maintenanceId = 'maintenance_${DateTime.now().millisecondsSinceEpoch}';
+        pendingItems.add({
+          'type': 'maintenance_record',
+          'tractor_id': maintenanceData['tractor_id'] ?? '',
+          'task_name': maintenanceData['task_name'] ?? maintenanceData['custom_type'] ?? 'Maintenance Task',
+          'description': maintenanceData['description'] ?? maintenanceData['notes'] ?? '',
+          'completion_date': maintenanceData['completion_date'] ?? DateTime.now().toIso8601String(),
+          'completion_hours': maintenanceData['completion_hours'] ?? 1,
+          'actual_time_minutes': maintenanceData['actual_time_minutes'] ?? 30,
+          'actual_cost_rwf': maintenanceData['actual_cost_rwf'] ?? maintenanceData['actual_cost'] ?? 0,
+          'service_location': maintenanceData['service_location'] ?? '',
+          'service_provider': maintenanceData['service_provider'] ?? '',
+          'notes': maintenanceData['notes'] ?? '',
+          'performed_by': maintenanceData['performed_by'] ?? '',
+          'parts_used': maintenanceData['parts_used'] ?? [],
+          'timestamp': DateTime.now().toIso8601String(),
+          'id': maintenanceId,
+          'pending_sync_id': maintenanceId,
+        });
+        
+        await storage.savePendingSyncItems(pendingItems);
+        AppConfig.log('✅ Maintenance record queued for offline sync');
+        
+        // Return a mock maintenance object for offline mode
+        return Maintenance(
+          id: maintenanceId,
+          tractorId: maintenanceData['tractor_id'] ?? '',
+          userId: 'user_001',
+          type: MaintenanceType.service,
+          customType: maintenanceData['task_name'] ?? maintenanceData['custom_type'] ?? 'Maintenance Task',
+          triggerType: MaintenanceTriggerType.manual,
+          dueDate: DateTime.parse(maintenanceData['completion_date'] ?? DateTime.now().toIso8601String()),
+          notes: maintenanceData['notes'] ?? '',
+          status: MaintenanceStatus.completed,
+          completedAt: DateTime.parse(maintenanceData['completion_date'] ?? DateTime.now().toIso8601String()),
+          actualCost: (maintenanceData['actual_cost_rwf'] ?? maintenanceData['actual_cost'] ?? 0).toDouble(),
+          createdAt: DateTime.now(),
+        );
+      }
+      
       rethrow;
     }
   }
@@ -778,10 +1061,15 @@ class ApiService {
       AppConfig.log('🔧 Creating maintenance alert for abnormal sound');
       AppConfig.log('🌐 Posting to URL: $url');
       
-      final response = await http.post(
-        Uri.parse(url),
+      final response = await _post(
+        url,
         headers: _getHeaders(),
-      ).timeout(Duration(seconds: AppConfig.apiTimeout));
+        body: null,
+        timeout: AppConfig.apiTimeout,
+      );
+      
+      // Clear cache after creating maintenance task
+      clearCache();
       
       AppConfig.log('📡 Create task response status: ${response.statusCode}');
       AppConfig.log('📄 Create task response body: ${response.body}');
@@ -813,6 +1101,47 @@ class ApiService {
       }
     } catch (e) {
       AppConfig.logError('❌ Create maintenance task error', e);
+      
+      // Check if this is a network error - queue for offline sync
+      if (e.toString().contains('Failed to fetch') || 
+          e.toString().contains('ClientException') ||
+          e.toString().contains('TimeoutException') ||
+          e.toString().contains('Connection failed') ||
+          e.toString().contains('SocketException')) {
+        
+        AppConfig.log('📱 Queueing maintenance task for offline sync');
+        final storage = StorageService();
+        final pendingItems = await storage.getPendingSyncItems();
+        
+        final taskId = 'maintenance_task_${DateTime.now().millisecondsSinceEpoch}';
+        pendingItems.add({
+          'type': 'maintenance_task',
+          'tractor_id': taskData['tractor_id'] ?? '',
+          'task_data': taskData,
+          'timestamp': DateTime.now().toIso8601String(),
+          'id': taskId,
+          'pending_sync_id': taskId,
+        });
+        
+        await storage.savePendingSyncItems(pendingItems);
+        AppConfig.log('✅ Maintenance task queued for offline sync');
+        
+        // Return a mock maintenance object for offline mode
+        return Maintenance(
+          id: taskId,
+          tractorId: taskData['tractor_id'] ?? '',
+          userId: 'user_001',
+          type: MaintenanceType.inspection,
+          customType: taskData['custom_type'] ?? taskData['type'] ?? 'Maintenance Task',
+          triggerType: MaintenanceTriggerType.manual,
+          dueDate: taskData['due_date'] != null ? DateTime.parse(taskData['due_date']) : DateTime.now().add(const Duration(days: 30)),
+          notes: taskData['notes'] ?? '',
+          status: MaintenanceStatus.upcoming,
+          estimatedCost: (taskData['estimated_cost'] ?? 0).toDouble(),
+          createdAt: DateTime.now(),
+        );
+      }
+      
       rethrow;
     }
   }
@@ -823,19 +1152,15 @@ class ApiService {
     AppConfig.log('📧 Email: $email');
     
     try {
-      final response = await http.post(
-        Uri.parse(registerUrl),
+      final response = await _post(
+        registerUrl,
         headers: _getHeaders(includeAuth: false),
         body: json.encode({
           'email': email,
           'password': password,
           'full_name': fullName,
         }),
-      ).timeout(
-        Duration(seconds: AppConfig.apiTimeout),
-        onTimeout: () {
-          throw Exception('Registration timeout - Please check your internet connection');
-        },
+        timeout: AppConfig.apiTimeout,
       );
       
       AppConfig.log('📡 Registration response status: ${response.statusCode}');
@@ -861,11 +1186,11 @@ class ApiService {
     AppConfig.log('🎯 Starting baseline collection for tractor: $tractorId');
     try {
       final url = AppConfig.getApiUrl('${AppConfig.baselineEndpoint}/$tractorId/start');
-      final response = await http.post(
-        Uri.parse(url).replace(queryParameters: {
-          'target_samples': targetSamples.toString(),
-        }),
+      final response = await _post(
+        url,
         headers: _getHeaders(),
+        body: null,
+        timeout: AppConfig.apiTimeout,
       );
 
       if (response.statusCode == 200) {
@@ -915,8 +1240,8 @@ class ApiService {
         throw Exception('Either audioFile or audioBytes must be provided');
       }
 
-      // Send request
-      final streamedResponse = await request.send();
+      // Send request with timeout (don't retry multipart requests - they can't be retried)
+      final streamedResponse = await request.send().timeout(Duration(seconds: AppConfig.uploadTimeout));
       final response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
@@ -945,10 +1270,15 @@ class ApiService {
       
       final url = AppConfig.getApiUrl('${AppConfig.baselineEndpoint}/$tractorId/finalize');
       
-      final response = await http.post(
-        Uri.parse(url).replace(queryParameters: queryParams),
+      final response = await _post(
+        url,
         headers: _getHeaders(),
+        body: null,
+        timeout: 30, // Increased timeout for baseline finalization (can take longer due to ML processing)
       );
+      
+      // Clear cache after baseline changes
+      clearCache();
 
       if (response.statusCode == 200) {
         return json.decode(response.body);
@@ -965,9 +1295,11 @@ class ApiService {
     AppConfig.log('📊 Getting baseline history for tractor: $tractorId');
     try {
       final url = AppConfig.getApiUrl('${AppConfig.baselineEndpoint}/$tractorId/history');
-      final response = await http.get(
-        Uri.parse(url),
+      final response = await _get(
+        url,
         headers: _getHeaders(),
+        useCache: true,
+        timeout: AppConfig.quickTimeout,
       );
 
       if (response.statusCode == 200) {
@@ -1031,9 +1363,11 @@ class ApiService {
     AppConfig.log('📊 Getting baseline status for tractor: $tractorId');
     try {
       final url = AppConfig.getApiUrl('${AppConfig.baselineEndpoint}/$tractorId/status');
-      final response = await http.get(
-        Uri.parse(url),
+      final response = await _get(
+        url,
         headers: _getHeaders(),
+        useCache: true,
+        timeout: AppConfig.quickTimeout,
       );
 
       if (response.statusCode == 200) {
@@ -1058,14 +1392,18 @@ class ApiService {
     print('⏰ End hours: $endHours');
     
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl${AppConfig.usageEndpoint}/$tractorId/log'),
+      final response = await _post(
+        '$baseUrl${AppConfig.usageEndpoint}/$tractorId/log',
         headers: _getHeaders(),
         body: json.encode({
           'end_hours': endHours,
           'notes': notes,
         }),
+        timeout: AppConfig.apiTimeout,
       );
+      
+      // Clear cache after logging usage
+      clearCache();
       
       print('📡 Usage log response: ${response.statusCode}');
       print('📄 Usage log body: ${response.body}');
@@ -1114,10 +1452,12 @@ class ApiService {
       
       AppConfig.log('📡 Usage history URL: $uri');
       
-      final response = await http.get(
-        uri,
+      final response = await _get(
+        uri.toString(),
         headers: _getHeaders(),
-      ).timeout(Duration(seconds: AppConfig.apiTimeout));
+        useCache: true,
+        timeout: AppConfig.quickTimeout,
+      );
       
       AppConfig.log('📡 Usage history response status: ${response.statusCode}');
       AppConfig.log('📄 Usage history response body: ${response.body}');
@@ -1163,10 +1503,12 @@ class ApiService {
     
     try {
       final url = AppConfig.getApiUrl('/maintenance/$tractorId/alerts');
-      final response = await http.get(
-        Uri.parse(url),
+      final response = await _get(
+        url,
         headers: _getHeaders(),
-      ).timeout(Duration(seconds: AppConfig.apiTimeout));
+        useCache: true,
+        timeout: AppConfig.quickTimeout,
+      );
       
       AppConfig.log('📡 Alerts response status: ${response.statusCode}');
       AppConfig.log('📄 Alerts response body: ${response.body}');
@@ -1204,10 +1546,12 @@ class ApiService {
     AppConfig.log('📊 Fetching tractor summary: $tractorId from $summaryUrl');
     
     try {
-      final response = await http.get(
-        Uri.parse(summaryUrl),
+      final response = await _get(
+        summaryUrl,
         headers: _getHeaders(),
-      ).timeout(Duration(seconds: AppConfig.apiTimeout));
+        useCache: true,
+        timeout: AppConfig.quickTimeout,
+      );
       
       AppConfig.log('📡 Summary response status: ${response.statusCode}');
       AppConfig.log('📄 Summary response body: ${response.body}');
@@ -1425,4 +1769,12 @@ class ApiException implements Exception {
   ApiException(this.message, [this.statusCode]);
   @override
   String toString() => message;
+}
+
+// Cache entry for GET request caching
+class _CacheEntry {
+  final http.Response response;
+  final DateTime timestamp;
+  
+  _CacheEntry(this.response, this.timestamp);
 }

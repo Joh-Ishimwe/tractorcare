@@ -981,9 +981,12 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text(
-              'Recent Activity',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+            Flexible(
+              child: Text(
+                'Recent Activity',
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
             TextButton(
               onPressed: () => Navigator.pushNamed(context, '/maintenance'),

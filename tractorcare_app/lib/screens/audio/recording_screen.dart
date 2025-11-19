@@ -1,18 +1,22 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/maintenance_provider.dart';
+import '../../providers/tractor_provider.dart';
+import '../../models/tractor.dart';
 import '../../config/colors.dart';
 import '../../config/app_config.dart';
 import '../../services/api_service.dart';
 import '../../services/storage_service.dart';
 import '../../services/offline_sync_service.dart';
 import '../../models/audio_prediction.dart';
+import '../../widgets/feedback_helper.dart';
 import 'dart:convert';
 
 class RecordingScreen extends StatefulWidget {
@@ -68,29 +72,17 @@ class _RecordingScreenState extends State<RecordingScreen> {
 
   Future<void> _processPendingAudioUploads() async {
     try {
-      // Check for any pending audio files that need to be uploaded
-      final pendingAudioData = await _storageService.getString('pending_audio_uploads_$_tractorId');
-      if (pendingAudioData != null) {
-        final List<dynamic> pendingUploads = jsonDecode(pendingAudioData);
-        
-        for (final upload in pendingUploads) {
-          try {
-            AppConfig.log('📤 Processing pending audio upload: ${upload['id']}');
-            
-            // Try to upload the audio file if it exists
-            if (upload['file_path'] != null) {
-              final file = File(upload['file_path']);
-              if (await file.exists()) {
-                await _uploadAudio(upload['file_path']);
-              }
-            }
-          } catch (e) {
-            AppConfig.logError('Failed to process pending audio upload', e);
-          }
+      final offlineSyncService = Provider.of<OfflineSyncService>(context, listen: false);
+      
+      // Trigger sync of pending items (which includes audio uploads)
+      if (offlineSyncService.isOnline) {
+        AppConfig.log('📤 Processing pending audio uploads via sync service...');
+        final synced = await offlineSyncService.syncPendingChanges();
+        if (synced) {
+          AppConfig.log('✅ Pending audio uploads synced successfully');
+          // Refresh predictions after sync
+          await _loadRecentPredictions();
         }
-        
-        // Clear processed uploads
-        await _storageService.remove('pending_audio_uploads_$_tractorId');
       }
     } catch (e) {
       AppConfig.logError('Failed to process pending audio uploads', e);
@@ -169,17 +161,41 @@ class _RecordingScreenState extends State<RecordingScreen> {
     super.dispose();
   }
 
-  void _startRecording() {
+  Future<void> _startRecording() async {
     final audioProvider = Provider.of<AudioProvider>(context, listen: false);
+    
+    // Request permission and start recording
+    final success = await audioProvider.startRecording();
+    
+    if (!success) {
+      // Permission denied or recording failed
+      final errorMessage = audioProvider.error ?? 'Failed to start recording';
+      if (mounted) {
+        FeedbackHelper.showError(
+          context, 
+          kIsWeb 
+            ? 'Microphone access denied. Please allow microphone access in your browser settings and try again.'
+            : FeedbackHelper.formatErrorMessage(errorMessage),
+        );
+      }
+      return;
+    }
+    
     setState(() {
       _isRecording = true;
       _recordingDuration = 0;
     });
-    audioProvider.startRecording();
 
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      setState(() => _recordingDuration++);
-      if (_recordingDuration >= 30) _stopRecording();
+      if (mounted) {
+        setState(() => _recordingDuration++);
+        if (_recordingDuration >= 30) {
+          timer.cancel();
+          _stopRecording();
+        }
+      } else {
+        timer.cancel();
+      }
     });
   }
 
@@ -212,27 +228,35 @@ class _RecordingScreenState extends State<RecordingScreen> {
     
     try {
       if (offlineSyncService.isOnline) {
-        // Online: Direct upload
-        final prediction = await _apiService.predictAudio(
-          audioFile: kIsWeb ? null : File(filePath),
-          tractorId: _tractorId,
-          engineHours: _engineHours,
-        );
-        
-        await _handleSuccessfulPrediction(prediction);
+        // Online: Direct upload - show status on same screen, no dialog
+        try {
+          final prediction = await _apiService.predictAudio(
+            audioFile: kIsWeb ? null : File(filePath),
+            tractorId: _tractorId,
+            engineHours: _engineHours,
+          );
+          
+          await _handleSuccessfulPrediction(prediction);
+          FeedbackHelper.showSuccess(context, 'Sound analysis completed successfully!');
+        } catch (e) {
+          AppConfig.logError('Audio upload failed', e);
+          // If we're online but upload failed, also queue it
+          await _queueAudioForUpload(filePath, null, null);
+          FeedbackHelper.showWarning(context, 'Analysis failed. Audio queued for retry when connection improves.');
+        }
       } else {
         // Offline: Queue for later upload
         await _queueAudioForUpload(filePath, null, null);
-        _showOfflineMessage();
+        FeedbackHelper.showInfo(context, 'Offline mode: Audio recorded and will be analyzed when online.');
       }
     } catch (e) {
       AppConfig.logError('Audio upload failed', e);
       if (offlineSyncService.isOnline) {
         // If we're online but upload failed, also queue it
         await _queueAudioForUpload(filePath, null, null);
-        _showError('Analysis failed, queued for retry when online');
+        FeedbackHelper.showWarning(context, 'Analysis failed. Audio queued for retry when connection improves.');
       } else {
-        _showError('Offline - audio queued for analysis when online');
+        FeedbackHelper.showInfo(context, 'Offline mode: Audio recorded and will be analyzed when online.');
       }
     } finally {
       if (mounted) setState(() => _isUploading = false);
@@ -284,26 +308,14 @@ class _RecordingScreenState extends State<RecordingScreen> {
       
       if (success && mounted) {
         // Show a subtle notification that task was created
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Row(
-              children: [
-                Icon(Icons.build, color: Colors.white, size: 20),
-                SizedBox(width: 8),
-                Text('🚨 Inspection task created due to abnormal sound'),
-              ],
-            ),
-            backgroundColor: AppColors.warning,
-            duration: const Duration(seconds: 4),
-            action: SnackBarAction(
-              label: 'VIEW',
-              textColor: Colors.white,
-              onPressed: () {
-                // Navigate to maintenance screen
-                Navigator.pushNamed(context, '/maintenance');
-              },
-            ),
-          ),
+        FeedbackHelper.showSuccess(
+          context, 
+          '🚨 Inspection task created due to abnormal sound detection',
+          onAction: () {
+            // Navigate to maintenance screen
+            Navigator.pushNamed(context, '/maintenance');
+          },
+          actionLabel: 'VIEW',
         );
       }
     } catch (e) {
@@ -314,22 +326,53 @@ class _RecordingScreenState extends State<RecordingScreen> {
 
   Future<void> _queueAudioForUpload(String? filePath, Uint8List? audioBytes, String? fileName) async {
     try {
-      // Create a pending prediction entry
-      final pendingPrediction = {
-        'id': 'pending_${DateTime.now().millisecondsSinceEpoch}',
+      final offlineSyncService = Provider.of<OfflineSyncService>(context, listen: false);
+      final storage = StorageService();
+      
+      // Convert audio bytes to base64 for storage
+      String? base64Audio;
+      if (audioBytes != null) {
+        base64Audio = base64Encode(audioBytes);
+      } else if (filePath != null && !kIsWeb) {
+        // For mobile, read file and convert to base64
+        try {
+          final file = File(filePath);
+          if (await file.exists()) {
+            final fileBytes = await file.readAsBytes();
+            base64Audio = base64Encode(fileBytes);
+          }
+        } catch (e) {
+          AppConfig.logError('Failed to read audio file for queuing', e);
+        }
+      }
+      
+      if (base64Audio == null && filePath == null) {
+        AppConfig.logError('Cannot queue audio: no audio data available', null);
+        return;
+      }
+      
+      // Create pending sync item
+      final audioId = 'audio_${DateTime.now().millisecondsSinceEpoch}';
+      final pendingItems = await storage.getPendingSyncItems();
+      
+      pendingItems.add({
+        'type': 'audio_upload',
         'tractor_id': _tractorId,
         'engine_hours': _engineHours,
-        'recording_duration': _recordingDuration,
+        'filename': fileName ?? (filePath != null ? filePath.split('/').last : 'recording.wav'),
+        'audio_data': base64Audio ?? '',
+        'file_path': filePath, // Keep file path for mobile
         'timestamp': DateTime.now().toIso8601String(),
-        'file_path': filePath,
-        'file_name': fileName,
-        'status': 'pending',
-        'audio_bytes': audioBytes?.toString(), // Convert to string for storage
-      };
+        'id': audioId,
+        'pending_sync_id': audioId,
+      });
+      
+      await storage.savePendingSyncItems(pendingItems);
+      await offlineSyncService.refreshConnectivity(); // Update pending count
       
       // Add to recent predictions immediately with pending status
       final pendingAudioPrediction = AudioPrediction(
-        id: pendingPrediction['id'] as String,
+        id: audioId,
         tractorId: _tractorId,
         userId: '', // Will be populated when synced
         audioPath: filePath ?? fileName ?? 'recorded_audio',
@@ -350,23 +393,12 @@ class _RecordingScreenState extends State<RecordingScreen> {
       await _storageService.setString('recent_predictions_$_tractorId', 
           jsonEncode(_recentPredictions.map((p) => p.toJson()).toList()));
       
-      AppConfig.log('Audio queued for upload: ${pendingPrediction['id']}');
+      AppConfig.log('✅ Audio queued for upload: $audioId');
     } catch (e) {
       AppConfig.logError('Failed to queue audio for upload', e);
     }
   }
 
-  void _showOfflineMessage() {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Offline - Audio recorded and will be analyzed when online'),
-          backgroundColor: Colors.orange,
-          duration: Duration(seconds: 3),
-        ),
-      );
-    }
-  }
 
   Future<void> _uploadAudioWeb(Uint8List audioBytes, String fileName) async {
     setState(() => _isUploading = true);
@@ -375,28 +407,36 @@ class _RecordingScreenState extends State<RecordingScreen> {
     
     try {
       if (offlineSyncService.isOnline) {
-        // Online: Direct upload
-        final prediction = await _apiService.predictAudio(
-          audioBytes: audioBytes,
-          fileName: fileName,
-          tractorId: _tractorId,
-          engineHours: _engineHours,
-        );
-        
-        await _handleSuccessfulPrediction(prediction);
+        // Online: Direct upload - show status on same screen, no dialog
+        try {
+          final prediction = await _apiService.predictAudio(
+            audioBytes: audioBytes,
+            fileName: fileName,
+            tractorId: _tractorId,
+            engineHours: _engineHours,
+          );
+          
+          await _handleSuccessfulPrediction(prediction);
+          FeedbackHelper.showSuccess(context, 'Sound analysis completed successfully!');
+        } catch (e) {
+          AppConfig.logError('Audio upload failed', e);
+          // If we're online but upload failed, also queue it
+          await _queueAudioForUpload(null, audioBytes, fileName);
+          FeedbackHelper.showWarning(context, 'Analysis failed. Audio queued for retry when connection improves.');
+        }
       } else {
         // Offline: Queue for later upload
         await _queueAudioForUpload(null, audioBytes, fileName);
-        _showOfflineMessage();
+        FeedbackHelper.showInfo(context, 'Offline mode: Audio recorded and will be analyzed when online.');
       }
     } catch (e) {
       AppConfig.logError('Audio upload failed', e);
       if (offlineSyncService.isOnline) {
         // If we're online but upload failed, also queue it
         await _queueAudioForUpload(null, audioBytes, fileName);
-        _showError('Analysis failed, queued for retry when online');
+        FeedbackHelper.showWarning(context, 'Analysis failed. Audio queued for retry when connection improves.');
       } else {
-        _showError('Offline - audio queued for analysis when online');
+        FeedbackHelper.showInfo(context, 'Offline mode: Audio recorded and will be analyzed when online.');
       }
     } finally {
       if (mounted) setState(() => _isUploading = false);
@@ -437,12 +477,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: AppColors.error,
-      ),
-    );
+    FeedbackHelper.showError(context, FeedbackHelper.formatErrorMessage(message));
   }
 
   String _getRecordingStatusText() {
@@ -455,6 +490,47 @@ class _RecordingScreenState extends State<RecordingScreen> {
     final minutes = seconds ~/ 60;
     final secs = seconds % 60;
     return '${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
+  }
+
+  Color _getStatusColor(TractorStatus status) {
+    switch (status) {
+      case TractorStatus.good:
+        return AppColors.success;
+      case TractorStatus.warning:
+        return AppColors.warning;
+      case TractorStatus.critical:
+        return AppColors.error;
+      default:
+        return AppColors.primary;
+    }
+  }
+
+  Map<String, dynamic> _getStatusGradientColors(TractorStatus status) {
+    switch (status) {
+      case TractorStatus.good:
+        return {
+          'gradient': [AppColors.success, AppColors.success.withValues(alpha: 0.8)],
+          'shadow': AppColors.success,
+        };
+      case TractorStatus.warning:
+        return {
+          'gradient': [
+            const Color(0xFFFFB347), // Light orange
+            const Color(0xFFFF8C42), // Darker orange
+          ],
+          'shadow': AppColors.warning,
+        };
+      case TractorStatus.critical:
+        return {
+          'gradient': [AppColors.error, AppColors.error.withValues(alpha: 0.8)],
+          'shadow': AppColors.error,
+        };
+      default:
+        return {
+          'gradient': [AppColors.primary, AppColors.primary.withValues(alpha: 0.8)],
+          'shadow': AppColors.primary,
+        };
+    }
   }
 
   Color _getPredictionColor(String status) {
@@ -531,24 +607,30 @@ class _RecordingScreenState extends State<RecordingScreen> {
           padding: const EdgeInsets.all(20),
           child: Column(
             children: [
-              // Tractor Info Header (Green background like baseline collection)
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [AppColors.primary, AppColors.primary.withValues(alpha: 0.8)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.primary.withValues(alpha: 0.2),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
+              // Tractor Info Header (Dynamic color based on health status)
+              Consumer<TractorProvider>(
+                builder: (context, tractorProvider, child) {
+                  final tractor = tractorProvider.getTractorById(_tractorId);
+                  final statusColor = _getStatusColor(tractor?.status ?? TractorStatus.unknown);
+                  final statusGradient = _getStatusGradientColors(tractor?.status ?? TractorStatus.unknown);
+                  
+                  return Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: statusGradient['gradient'] as List<Color>,
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: (statusGradient['shadow'] as Color).withValues(alpha: 0.2),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
                 child: Row(
                   children: [
                     Container(
@@ -597,6 +679,8 @@ class _RecordingScreenState extends State<RecordingScreen> {
                     ),
                   ],
                 ),
+                  );
+                },
               ),
 
               const SizedBox(height: 20),
@@ -674,6 +758,29 @@ class _RecordingScreenState extends State<RecordingScreen> {
                         const Text('Minimize background noise'),
                       ],
                     ),
+                    if (kIsWeb) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              color: AppColors.info,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Web: Allow microphone access when prompted',
+                            style: TextStyle(
+                              color: AppColors.info,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -715,11 +822,37 @@ class _RecordingScreenState extends State<RecordingScreen> {
                     
                     const SizedBox(height: 16),
                     
-                    Text(
-                      _getRecordingStatusText(),
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-                      textAlign: TextAlign.center,
-                    ),
+                    // Status text with loading indicator when analyzing
+                    if (_isUploading && !_isRecording) ...[
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            _getRecordingStatusText(),
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ] else ...[
+                      Text(
+                        _getRecordingStatusText(),
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
                     
                     if (_isRecording) ...[
                       const SizedBox(height: 8),
@@ -742,7 +875,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
                         child: ElevatedButton.icon(
                           onPressed: _isUploading ? null : _startRecording,
                           icon: const Icon(Icons.mic),
-                          label: const Text('Start Recording'),
+                          label: Text(kIsWeb ? 'Record Live (Web)' : 'Start Recording'),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.success,
                             foregroundColor: Colors.white,
@@ -989,7 +1122,7 @@ class _RecordingScreenState extends State<RecordingScreen> {
                                     await _apiService.deletePrediction(tractorId: _tractorId, predictionId: prediction.id);
                                     if (mounted) {
                                       setState(() => _recentPredictions.removeWhere((p) => p.id == prediction.id));
-                                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Prediction deleted'), backgroundColor: AppColors.success));
+                                      FeedbackHelper.showSuccess(context, 'Prediction deleted successfully');
                                     }
                                   } catch (e) {
                                     AppConfig.logError('Failed to delete prediction', e);

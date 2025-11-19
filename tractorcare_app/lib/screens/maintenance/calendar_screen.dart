@@ -198,6 +198,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       
                       setModalState(() => isSubmitting = true);
                       
+                      bool modalDismissed = false;
                       try {
                         final apiService = ApiService();
                         
@@ -215,25 +216,37 @@ class _CalendarScreenState extends State<CalendarScreen> {
                         });
                         
                         Navigator.pop(context);
+                        modalDismissed = true;
                         
                         // Refresh calendar data
                         await _loadEvents();
                         
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Maintenance scheduled successfully!'),
-                            backgroundColor: AppColors.success,
-                          ),
-                        );
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Maintenance scheduled successfully!'),
+                              backgroundColor: AppColors.success,
+                            ),
+                          );
+                        }
                       } catch (e) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Failed to schedule maintenance: ${e.toString()}'),
-                            backgroundColor: AppColors.error,
-                          ),
-                        );
+                        if (!modalDismissed && context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Failed to schedule maintenance: ${e.toString()}'),
+                              backgroundColor: AppColors.error,
+                            ),
+                          );
+                        }
                       } finally {
-                        setModalState(() => isSubmitting = false);
+                        // Only call setModalState if the modal hasn't been dismissed
+                        if (!modalDismissed) {
+                          try {
+                            setModalState(() => isSubmitting = false);
+                          } catch (_) {
+                            // Modal was dismissed, ignore the error
+                          }
+                        }
                       }
                     },
                     style: ElevatedButton.styleFrom(
