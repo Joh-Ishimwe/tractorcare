@@ -81,37 +81,37 @@ class _AddMaintenanceScreenState extends State<AddMaintenanceScreen> {
     try {
       data['tractor_id'] = _tractorId!;
       final offlineSyncService = Provider.of<OfflineSyncService>(context, listen: false);
-      
+
       if (offlineSyncService.isOnline) {
         try {
-          await _api.createMaintenance(data);
-          
+          await _api.createMaintenanceTask(data);
+
           if (!mounted) return;
-          
-          FeedbackHelper.showSuccess(context, 'Maintenance added successfully!');
+
+          FeedbackHelper.showSuccess(context, 'Maintenance task added successfully!');
           Navigator.pop(context, true);
         } catch (e) {
-          AppConfig.logError('Failed to create maintenance (will queue for sync)', e);
-          // If online but request failed, it will be queued by createMaintenance
+          AppConfig.logError('Failed to create maintenance task (will queue for sync)', e);
+          // If online but request failed, it will be queued by createMaintenanceTask
           if (!mounted) return;
-          
-          FeedbackHelper.showWarning(context, 'Maintenance queued for sync when connection improves.');
+
+          FeedbackHelper.showWarning(context, 'Maintenance task queued for sync when connection improves.');
           Navigator.pop(context, true);
         }
       } else {
-        // Offline: createMaintenance will queue it automatically
-        await _api.createMaintenance(data);
-        
+        // Offline: createMaintenanceTask will queue it automatically
+        await _api.createMaintenanceTask(data);
+
         if (!mounted) return;
-        
-        FeedbackHelper.showInfo(context, 'Offline mode: Maintenance queued and will be added when online.');
+
+        FeedbackHelper.showInfo(context, 'Offline mode: Maintenance task queued and will be added when online.');
         Navigator.pop(context, true);
       }
     } catch (e) {
       if (!mounted) return;
 
       setState(() => _isLoading = false);
-      FeedbackHelper.showError(context, FeedbackHelper.formatErrorMessage('Failed to add maintenance: $e'));
+      FeedbackHelper.showError(context, FeedbackHelper.formatErrorMessage('Failed to add maintenance task: $e'));
     }
   }
 

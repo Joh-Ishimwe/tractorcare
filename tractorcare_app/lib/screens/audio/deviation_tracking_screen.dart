@@ -89,10 +89,8 @@ class _DeviationTrackingScreenState extends State<DeviationTrackingScreen> {
       backgroundColor: AppColors.background,
       appBar: AppBar(
         title: Text(
-          widget.tractorModel != null && widget.tractorId != null
-            ? 'Deviation Tracking - ${widget.tractorModel} (ID: ${widget.tractorId})'
-            : widget.tractorModel != null
-              ? 'Deviation Tracking - ${widget.tractorModel}'
+          widget.tractorId != null
+              ? 'Deviation Tracking - ${widget.tractorId}'
               : 'Deviation Tracking',
         ),
         backgroundColor: AppColors.primary,

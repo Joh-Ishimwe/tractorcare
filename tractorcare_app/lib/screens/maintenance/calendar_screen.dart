@@ -203,11 +203,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
                         final apiService = ApiService();
                         
                         // Create maintenance record
-                        await apiService.createMaintenance({
+                          // Create maintenance task (upcoming)
+                          await apiService.createMaintenanceTask({
                           'tractor_id': selectedTractorId!,
                           'task_name': notesController.text.trim(),
                           'description': 'Scheduled maintenance task',
-                          'completion_date': _selectedDay?.toIso8601String() ?? DateTime.now().toIso8601String(),
+                            'due_date': _selectedDay?.toIso8601String() ?? DateTime.now().toIso8601String(),
                           'completion_hours': 1,
                           'actual_time_minutes': 60,
                           'actual_cost_rwf': 0,
