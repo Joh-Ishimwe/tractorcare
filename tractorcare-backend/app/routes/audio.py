@@ -60,13 +60,17 @@ async def get_deviation_timeseries(
     trends = await AudioTrend.find({"tractor_id": tractor_id.upper()}).sort("date").to_list()
     points = []
     for t in trends:
-        points.append(DeviationPointResponse(
-            date=t.recorded_at.isoformat() if hasattr(t.recorded_at, 'isoformat') else str(t.recorded_at),
-            deviation=t.deviation_score,
-            engine_hours=getattr(t, 'tractor_hours', None),
-            prediction_id=getattr(t, 'prediction_id', None),
-            baseline_status=getattr(t, 'baseline_status', None)
-        ))
+            # Ensure baseline_status is always a valid string
+            baseline_status = getattr(t, 'baseline_status', None)
+            if baseline_status is None:
+                baseline_status = "unknown"
+            points.append(DeviationPointResponse(
+                date=t.recorded_at.isoformat() if hasattr(t.recorded_at, 'isoformat') else str(t.recorded_at),
+                deviation=t.deviation_score,
+                engine_hours=getattr(t, 'tractor_hours', None),
+                prediction_id=getattr(t, 'prediction_id', None),
+                baseline_status=baseline_status
+            ))
     return DeviationTimeSeriesResponse(
         tractor_id=tractor_id.upper(),
         points=points
