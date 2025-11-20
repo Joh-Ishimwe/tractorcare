@@ -326,6 +326,9 @@ async def upload_audio(
                 baseline_status = getattr(baseline, "status", None)
                 if hasattr(baseline_status, "value"):
                     baseline_status = baseline_status.value
+                logger.info(f"📝 Creating AudioTrend for tractor_id={tractor_id.upper()} baseline_id={str(baseline.id)} baseline_status={baseline_status}")
+                logger.info(f"📝 Deviation info: {deviation_info}")
+                logger.info(f"📝 Combined analysis: {combined_analysis}")
                 trend = AudioTrend(
                     tractor_id=tractor_id.upper(),
                     recorded_at=datetime.utcnow(),
@@ -342,7 +345,7 @@ async def upload_audio(
                     baseline_status=baseline_status
                 )
                 await trend.insert()
-                logger.info(f"📈 Trend data saved")
+                logger.info(f"📈 Trend data saved: {trend}")
             except Exception as e:
                 logger.error(f"⚠️  Could not save trend data: {e}")
         

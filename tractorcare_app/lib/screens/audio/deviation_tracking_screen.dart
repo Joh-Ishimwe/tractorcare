@@ -163,7 +163,31 @@ class _DeviationTrackingScreenState extends State<DeviationTrackingScreen> {
             );
           }
 
-          if (!provider.hasData) {
+          // Show deviation chart and data if available
+          if (provider.deviationPoints.isNotEmpty) {
+            return RefreshIndicator(
+              onRefresh: () async {
+                await provider.fetchDeviationData(widget.tractorId);
+              },
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (provider.hasBaselineInfo) _buildBaselineInfoCard(provider),
+                    if (provider.hasBaselineInfo) const SizedBox(height: 16),
+                    _buildSummaryCards(provider),
+                    const SizedBox(height: 24),
+                    _buildDeviationChart(provider),
+                    const SizedBox(height: 24),
+                    _buildDataTable(provider),
+                  ],
+                ),
+              ),
+            );
+          } else {
+            // No deviation data, show baseline info and prompt
             return RefreshIndicator(
               onRefresh: () async {
                 await provider.fetchDeviationData(widget.tractorId);
@@ -193,7 +217,6 @@ class _DeviationTrackingScreenState extends State<DeviationTrackingScreen> {
                             ),
                           ),
                           const SizedBox(height: 16),
-                          // Show baseline info if available
                           if (provider.hasBaselineInfo) ...[
                             _buildBaselineInfoCard(provider),
                             const SizedBox(height: 16),
