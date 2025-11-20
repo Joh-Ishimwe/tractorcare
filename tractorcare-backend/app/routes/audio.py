@@ -322,6 +322,10 @@ async def upload_audio(
         # ===== NEW: Save trend data if baseline exists =====
         if has_baseline and deviation_info and combined_analysis:
             try:
+                # Get baseline status as string (enum or str)
+                baseline_status = getattr(baseline, "status", None)
+                if hasattr(baseline_status, "value"):
+                    baseline_status = baseline_status.value
                 trend = AudioTrend(
                     tractor_id=tractor_id.upper(),
                     recorded_at=datetime.utcnow(),
@@ -334,7 +338,8 @@ async def upload_audio(
                     baseline_id=str(baseline.id),
                     prediction_id=prediction_id,
                     deviation_percentage=float(deviation_info["percentage_anomalous"]),
-                    max_deviation=float(deviation_info["max_deviation"])
+                    max_deviation=float(deviation_info["max_deviation"]),
+                    baseline_status=baseline_status
                 )
                 await trend.insert()
                 logger.info(f"📈 Trend data saved")

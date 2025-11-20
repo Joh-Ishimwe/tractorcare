@@ -405,15 +405,18 @@ class AudioTrend(Document):
     resnet_score: float = Field(..., description="ResNet anomaly probability (0-1)")
     deviation_score: float = Field(..., description="Deviation from baseline (std deviations)")
     combined_score: float = Field(..., description="Weighted combination of both scores")
-    
+
     # Classification
     status: TrendStatus = Field(..., description="Health status classification")
     anomaly_type: Optional[str] = None  # minor_anomaly, unusual_noise, etc.
-    
+
     # References
     baseline_id: str = Field(..., description="Which baseline was used")
     prediction_id: str = Field(..., description="Link to AudioPrediction")
-    
+
+    # Baseline status at time of trend
+    baseline_status: Optional[str] = Field(default=None, description="Status of the baseline used for this trend (active, establishing, archived, etc.)")
+
     # Comparison data
     deviation_percentage: float = Field(default=0.0, description="% of features that are anomalous")
     max_deviation: float = Field(default=0.0, description="Maximum single feature deviation")
