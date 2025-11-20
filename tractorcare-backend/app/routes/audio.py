@@ -61,9 +61,9 @@ async def get_deviation_timeseries(
     points = []
     for t in trends:
         points.append(DeviationPointResponse(
-            date=t.date.isoformat() if hasattr(t.date, 'isoformat') else str(t.date),
+            date=t.recorded_at.isoformat() if hasattr(t.recorded_at, 'isoformat') else str(t.recorded_at),
             deviation=t.deviation_score,
-            engine_hours=getattr(t, 'engine_hours', None),
+            engine_hours=getattr(t, 'tractor_hours', None),
             prediction_id=getattr(t, 'prediction_id', None),
             baseline_status=getattr(t, 'baseline_status', None)
         ))
