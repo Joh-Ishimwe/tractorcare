@@ -91,89 +91,29 @@ class DeviationProvider with ChangeNotifier {
 
   // Fetch deviation data for a tractor
   Future<void> fetchDeviationData(String tractorId) async {
-    _currentTractorId = tractorId; // Store current tractor ID for refresh on connectivity change
+    _currentTractorId = tractorId;
     _setLoading(true);
     _setErrorMessage(null);
 
     try {
-      // Fetch predictions first (main data we need) - use longer timeout
-      List<AudioPrediction> predictions;
-      try {
-        predictions = await _apiService.getPredictions(tractorId).timeout(
-          const Duration(seconds: 20),
-          onTimeout: () {
-            throw TimeoutException('Predictions request timed out after 20 seconds');
-          },
-        );
-      } catch (e) {
-        AppConfig.logError('❌ Failed to fetch predictions', e);
-        // If predictions fail, we can't show deviation data
-        throw Exception('Failed to load audio predictions. Please check your connection and try again.');
-      }
-      
-      AppConfig.log('📊 Fetched ${predictions.length} total predictions');
-      
-      // Debug: Log details about each prediction
-      for (var i = 0; i < predictions.length && i < 5; i++) {
-        final p = predictions[i];
-        AppConfig.log('   Prediction ${i + 1}:');
-        AppConfig.log('     - ID: ${p.id}');
-        AppConfig.log('     - Created: ${p.createdAt}');
-        AppConfig.log('     - Baseline Deviation: ${p.baselineDeviation}');
-        AppConfig.log('     - Baseline Status: ${p.baselineStatus}');
-        AppConfig.log('     - Anomaly Score: ${p.anomalyScore}');
-      }
-      
-      // Filter predictions that have baseline deviation
-      final predictionsWithDeviation = predictions
-          .where((p) => p.baselineDeviation != null)
-          .toList();
-
-      AppConfig.log('📈 Found ${predictionsWithDeviation.length} predictions with baseline deviation');
-      
-      if (predictionsWithDeviation.isEmpty && predictions.isNotEmpty) {
-        AppConfig.log('⚠️ No predictions have baseline deviation. This may mean:');
-        AppConfig.log('   1. No baseline has been established for this tractor');
-        AppConfig.log('   2. Predictions were made before baseline was created');
-        AppConfig.log('   3. Backend did not calculate baseline deviation');
-        AppConfig.log('   4. Predictions need to be re-fetched after baseline is created');
-        
-        // Check if we have baseline info
-        if (_baselineId != null) {
-          AppConfig.log('   ℹ️ Baseline exists (ID: $_baselineId), but predictions don\'t have deviation');
-          AppConfig.log('   💡 Try recording a new audio test - it should include baseline deviation');
-        }
-      }
-
-      // Convert predictions to deviation points
-      _deviationPoints = predictionsWithDeviation.map((prediction) {
-        return DeviationPoint(
-          date: prediction.createdAt,
-          deviation: prediction.baselineDeviation!,
-          engineHours: prediction.engineHours,
-          predictionId: prediction.id,
-          baselineStatus: prediction.baselineStatus,
-        );
-      }).toList();
-
-      // Sort by date
+      // Fetch deviation time-series from backend
+      final pointsJson = await _apiService.fetchDeviationTimeSeries(tractorId);
+      AppConfig.log('📈 Fetched ${pointsJson.length} deviation points from backend');
+      _deviationPoints = pointsJson.map((json) => DeviationPoint.fromJson(json)).toList();
       _deviationPoints.sort((a, b) => a.date.compareTo(b.date));
 
       // Try to fetch baseline date (non-blocking - don't fail if this times out)
-      _tryFetchBaselineDate(tractorId);
+      await _tryFetchBaselineDate(tractorId);
 
       AppConfig.log('✅ Loaded ${_deviationPoints.length} deviation points');
-      
       if (_baselineDate != null) {
         AppConfig.log('📅 Baseline date: $_baselineDate');
       } else {
         AppConfig.log('⚠️ No baseline date found (will use first prediction date as reference)');
-        // Use first prediction date as fallback baseline date
         if (_deviationPoints.isNotEmpty) {
           _baselineDate = _deviationPoints.first.date;
         }
       }
-
       _setLoading(false);
     } catch (e) {
       AppConfig.logError('❌ Failed to fetch deviation data', e);

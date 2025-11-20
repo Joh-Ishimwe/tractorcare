@@ -149,7 +149,7 @@ class _UsageHistoryScreenState extends State<UsageHistoryScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Usage History - $model'),
+        title: Text('Usage History - $model (ID: $tractorId)'),
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
       ),
