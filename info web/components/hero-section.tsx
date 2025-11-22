@@ -18,12 +18,11 @@ export function HeroSection() {
           {/* Left Content */}
           <div>
 
-            <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-6 leading-tight">
+            <h1 className="text-4xl md:text-5xl font-bold text-white mb-6 leading-tight">
               Unlock Tractor Health Insights with AI
             </h1>
             <p className="text-xl text-gray-400 mb-8 leading-relaxed">
-              Boost reliability and reduce downtime with predictive maintenance. Get instant diagnostics for your
-            tractors using AI-powered audio analysis, designed for Rwanda's smallholder farmers.
+              Boost reliability and reduce downtime with predictive maintenance.
             </p>
 
             {/* Features */}
@@ -95,9 +94,9 @@ export function HeroSection() {
               {/* Image container */}
               <div className="relative rounded-3xl overflow-hidden border-4 border-zinc-800 shadow-2xl">
                 <img
-                  src="/modern-tractor-in-field-rwanda-agriculture.jpg"
+                  src="/modern-tractor-in-field-rwanda-agriculture.png"
                   alt="Tractor in field"
-                  className="w-full h-full object-cover aspect-[4/3]"
+                  className="w-full h-full object-cover aspect-[4/3] bg-zinc-900 text-white"
                 />
               </div>
             </div>

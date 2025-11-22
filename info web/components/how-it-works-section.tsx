@@ -10,7 +10,7 @@ const steps = [
   {
     icon: Brain,
     title: "2. AI Analysis",
-    description: "Our ResNet-like CNN analyzes the audio for anomalies, predicting failures with 92.9% accuracy.",
+    description: "Our System analyzes the audio for anomalies, predicting you tractor health status .",
   },
   {
     icon: Bell,
